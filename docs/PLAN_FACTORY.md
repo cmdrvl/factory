@@ -289,7 +289,121 @@ This is what the previous 5 retirement attempts didn't have: a precise, continuo
 
 ---
 
-## Phase 4: Prove + Seal
+## Phase 4: Replay (Behavioral Equivalence)
+
+### The two-twin design
+
+Each data product gets two twins:
+
+**Twin A — Oracle schema.** Same tables, same columns, same relationships as the legacy database. Load the migrated data into Oracle's own schema structure. This twin speaks Oracle's language.
+
+**Twin B — Target schema.** The clean, purpose-built schema for the data product. Load the transformed data. This twin speaks the new model's language.
+
+```bash
+# Twin A: Oracle schema for the loan performance slice
+twinning postgres --schema oracle-loan-tables.sql --port 5433
+
+# Twin B: New data product schema
+twinning postgres --schema loan-perf-schema.sql --rules loan-perf-rules.json --port 5434
+```
+
+### Why two twins
+
+The query translation problem disappears. You don't need to rewrite `SELECT balance, status FROM loan_master WHERE deal_id = ?` into new-schema SQL. You replay it verbatim against Twin A, which has the same schema as Oracle. If the result sets match, the data migration didn't lose or corrupt anything.
+
+Twin B proves a different thing: the new data product is correct on its own terms. Verify rules pass, benchmark scores meet the bar, assess says PROCEED.
+
+Two independent proofs:
+1. **Behavioral equivalence** — Twin A + replay: "the migrated data answers the same questions Oracle did"
+2. **Target correctness** — Twin B + spine scoring: "the new data product satisfies its own contracts"
+
+The transformation logic between Twin A and Twin B is itself testable — load the same source data into both, export, run `compare`. Any difference is either an intentional schema change (documented) or a bug.
+
+### Replay
+
+`factory scan` captured Oracle's historical query patterns from `v$sql` and `dba_hist_sqlstat` — every query every application ran, with frequency and recency. `factory replay` turns those into an executable behavioral test suite:
+
+```bash
+factory replay --queries scan-results/queries/risk-app.sql \
+  --oracle oracle://... \
+  --twin localhost:5433 \
+  --output replay-results/
+```
+
+For each historical query:
+1. Run against Oracle (live, or cached result sets from scan)
+2. Run the same SQL verbatim against Twin A
+3. Compare result sets (row-for-row, column-for-column)
+4. Classify: MATCH, MISMATCH, or SKIP (query uses unsupported SQL features)
+
+### Replay output
+
+```json
+{
+  "version": "factory_replay.v0",
+  "data_product": "loan-performance-mart",
+  "queries_total": 912,
+  "queries_matched": 905,
+  "queries_mismatched": 4,
+  "queries_skipped": 3,
+  "match_rate": 0.9923,
+  "mismatches": [
+    {
+      "query_id": "sha256:...",
+      "source_app": "risk-reporting-app",
+      "sql": "SELECT SUM(balance) FROM loan_master WHERE status = 'delinquent'",
+      "oracle_result": "45230000.00",
+      "twin_result": "45229500.00",
+      "delta": "500.00",
+      "classification": "rounding"
+    }
+  ],
+  "skipped": [
+    {
+      "query_id": "sha256:...",
+      "source_app": "legacy-cobol-batch",
+      "sql": "SELECT ... CONNECT BY PRIOR ...",
+      "reason": "hierarchical_query_unsupported"
+    }
+  ]
+}
+```
+
+### Replay coverage on the dashboard
+
+The coverage dashboard gains a new axis:
+
+```
+Data product: loan-performance-mart
+
+  Static proof:
+    Tables compared:    47 / 47    (100%)
+    Rows matched:       99.98%
+    Verify rules:       PASS (12/12)
+    Benchmark accuracy: 0.997
+
+  Behavioral proof:
+    Query patterns:     912 captured from 5 applications
+    Replayed:           909 / 912  (99.7%)
+    Matched:            905 / 909  (99.6%)
+    Mismatched:         4          (all classified as rounding)
+    Skipped:            3          (hierarchical queries — manual equivalents pending)
+
+  Assess decision:      PROCEED_WITH_RISK
+  Risk factors:         4 rounding mismatches (bounded, < $0.01 per row)
+```
+
+### What the bank couldn't say before
+
+Previous attempts: "We migrated the data. It looks right. We think it works."
+
+With replay: "We replayed 12 months of production queries from 5 applications against the migrated data. 99.6% returned identical results. 4 queries had sub-penny rounding differences. 3 Oracle-specific hierarchical queries need manual equivalents. Here's the evidence pack."
+
+That's not a belief. That's a proof.
+
+---
+
+## Phase 5: Prove + Seal
 
 ### Evidence per data product
 
@@ -300,18 +414,19 @@ evidence/loan-performance-mart/
 ├── scan-claims.pack           # All claims about the source tables
 ├── decode-map.pack            # Canonical understanding of what these tables do
 ├── assembly-strategy.json     # How the data was assembled (Oracle + re-parsed docs)
+├── replay.report.json         # Behavioral equivalence (query replay results)
 ├── benchmark.report.json      # Gold set accuracy
 ├── verify.report.json         # Rule compliance
 ├── compare.report.json        # Exhaustive diff vs Oracle source
 ├── rvl.report.json            # Materiality analysis
-├── assess.report.json         # Policy decision: PROCEED
+├── assess.report.json         # Policy decision (covers both static + behavioral)
 ├── data.lock.json             # Content-addressed lockfile for the data
 └── evidence.pack              # Sealed evidence bundle
 ```
 
 ### What the auditors see
 
-Not "we migrated the database." Instead: "Here are 24 evidence packs, one per data product. Each one proves: what Oracle contained, what we assembled, how they compare, which rules passed, which risks were accepted and why, and the policy decision. Every number traces to a source. Every decision is reproducible."
+Not "we migrated the database." Instead: "Here are 24 evidence packs, one per data product. Each one proves two things independently: the data matches (static equivalence via compare + verify + benchmark) AND the system behaves the same (behavioral equivalence via query replay). Every number traces to a source. Every query is reproducible. Every decision is sealed."
 
 That's why the previous attempts failed and this one won't. Not better technology — better proof.
 
@@ -368,8 +483,9 @@ When data flows from Oracle to a data product, it passes through the spine. When
 3. **Claim format + storage** — JSONL files, content-addressed. No message bus.
 4. **Decode v0** — Resolve structural claims (DDL + codebase). Surface conflicts. Build the map.
 5. **Coverage dashboard** — Alive/dead/mapped/proven counts. The project management layer.
-6. **Twin per target** — One twin per data product. Schema from decoded claims. Rules from scan.
+6. **Two twins per target** — Twin A (Oracle schema) + Twin B (new schema). Schemas from decoded claims. Rules from scan.
 7. **Tournament loop** — Assemble, load, score, iterate. Spine tools do the scoring.
-8. **Evidence sealing** — Pack per data product. The auditor deliverable.
+8. **factory replay** — Behavioral equivalence. Replay historical queries against Twin A. Compare result sets.
+9. **Evidence sealing** — Pack per data product. Static proof + behavioral proof + assess decision.
 
-Each step is independently useful. You don't need step 8 to get value from step 1.
+Each step is independently useful. You don't need step 9 to get value from step 1.
