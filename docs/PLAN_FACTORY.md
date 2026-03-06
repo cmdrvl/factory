@@ -477,13 +477,95 @@ That's why the previous attempts failed and this one won't. Not better technolog
 
 ---
 
+## Agent swarm (the parallel factory)
+
+### The operational model
+
+The factory runs as 15-20 parallel `ntm` sessions, each an independent agent with its own working directory and (when needed) its own twin instance. There is no custom orchestration framework. Coordination happens through three mechanisms that already exist:
+
+1. **Convergence dashboard** — every agent can read the current bucket state. When agent 7 finishes scanning the Java risk app, it commits 340 claims. The dashboard updates. Every other agent sees 340 buckets fill. No message passing required.
+2. **Git** — claims are JSONL files in a shared repo. Agents commit and push. No locks, no coordination service. Content-addressed claim IDs mean duplicate claims from different agents are idempotent.
+3. **Work allocation by phase** — agents self-select from the highest-value available work, guided by the dashboard.
+
+### Swarm topology
+
+The factory runs in waves. Each wave saturates a phase before moving on:
+
+**Wave 1: Scan (5-7 agents)**
+Each agent scans one application codebase or one slice of Oracle. They run in parallel with zero coordination — each produces independent claims.
+
+```
+ntm spawn scan-java-risk        # Agent scans the Java risk app
+ntm spawn scan-python-reporting  # Agent scans the Python reporting scripts
+ntm spawn scan-crystal-reports   # Agent scans Crystal Reports definitions
+ntm spawn scan-oracle-procs      # Agent scans stored procedures
+ntm spawn scan-oracle-jobs       # Agent scans scheduled jobs + audit logs
+```
+
+Each agent: scan → produce claims (JSONL) → commit → push. When all scan agents finish, the convergence dashboard shows the state of all 14,200 buckets. Humans review conflicted buckets.
+
+**Wave 2: Tournament (10-15 agents)**
+Each agent works one data product. Boots its own twin pair (Twin A + Twin B), assembles candidate data, loads, scores, iterates.
+
+```
+ntm spawn dp-loan-performance   # Agent works the loan performance mart
+ntm spawn dp-deal-structure     # Agent works the deal structure mart
+ntm spawn dp-compliance         # Agent works the compliance data product
+ntm spawn dp-surveillance       # Agent works the surveillance mart
+...                             # 10-15 data products in parallel
+```
+
+Each agent: assemble → load twin → score (benchmark + verify + compare + assess) → iterate → seal evidence pack. Agents don't interact. Each twin is isolated. Each evidence pack is independent.
+
+**Wave 3: Replay (5-10 agents)**
+Each agent replays historical queries for one data product against its Twin A.
+
+```
+ntm spawn replay-loan-perf      # Replay risk app queries against loan perf Twin A
+ntm spawn replay-compliance     # Replay compliance queries against compliance Twin A
+...
+```
+
+### Why this works without a framework
+
+The convergence model is the coordination mechanism. Agents are the fountain encoders — they spray claims from independent sources. The convergence dashboard is the decoder — it tracks when enough claims have landed to justify confidence. No agent needs to know what any other agent is doing. They just:
+
+1. Read the dashboard to find the highest-value work
+2. Do the work (scan, assemble, score, replay)
+3. Commit results (claims, reports, evidence packs)
+4. The dashboard updates
+
+This is the agent swarm from the old plan, minus the custom orchestration framework. `ntm` handles session management. Git handles state sharing. Convergence handles coordination. Content-addressing handles deduplication.
+
+### Agent isolation guarantees
+
+- Each agent has its own working directory (ntm provides this)
+- Each agent boots its own twin instances (no shared database state)
+- Claims are content-addressed (duplicate claims from different agents are harmless)
+- Evidence packs are per-data-product (no cross-agent output conflicts)
+- The only shared mutable state is the git repo, and JSONL is append-friendly
+
+### Scaling
+
+| Phase | Agents | Bottleneck | Duration |
+|-------|--------|-----------|----------|
+| Scan | 5-7 | Number of applications + Oracle slices | Hours to days |
+| Human review | 1-3 | Conflicted buckets | Days (front-loaded) |
+| Tournament | 10-15 | Number of data products | Days to weeks |
+| Replay | 5-10 | Number of data products × query volume | Hours to days |
+| Evidence sealing | 1 per product | Sequential per product (fast) | Minutes each |
+
+20 agents working for 2 weeks can scan, assemble, tournament-score, replay, and seal evidence for 24 data products. That's a 1000-table Oracle database decomposed with proof in 2 weeks. The previous attempts took years.
+
+---
+
 ## What we killed from the old plan
 
 The original PLAN_FACTORY.md was 2000 lines. This is what we cut and why:
 
 | Cut | Why |
 |-----|-----|
-| Agent swarm coordination | Premature. Agents iterate independently. Coordination is a scheduling problem, not an architecture. |
+| Agent swarm custom framework | Replaced with ntm + git + convergence. The swarm concept survived — the custom orchestration layer didn't. |
 | Fountain code / RaptorQ implementation | The event stream / reactive projector implementation. The convergence *model* survived — it's how claims from multiple shitty sources justify confidence. |
 | Event stream architecture (NATS, Redis Streams) | Premature infrastructure. Claims can be JSONL files for v0. |
 | Passive projector pattern | Over-abstraction. Decoding reads claims, emits mutations. A function, not a reactive stream. |
