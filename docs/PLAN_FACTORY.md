@@ -201,18 +201,63 @@ Claims can be about:
 
 Claims are expected to be messy, overlapping, and contradictory. That's the point.
 
+### Convergence (the fountain model)
+
+Each property of each table is a **bucket**: `(table, column, property_type)`. Claims pour into buckets from multiple independent sources. The decoder tracks the state of every bucket:
+
+| State | Meaning | Action |
+|-------|---------|--------|
+| **Empty** | No source has said anything about this | Unknown — may be dead, may be undiscovered |
+| **Single-source** | One source, one claim | Low confidence — need corroboration |
+| **Converging** | Multiple sources, consistent | Confidence rises with each independent confirmation |
+| **Converged** | Enough independent sources agree | High confidence — move on |
+| **Conflicted** | Sources actively disagree | Needs human resolution |
+
+The key insight from fountain codes: **you don't need every source to be complete. You need enough independent sources agreeing to converge.** A Java app that only touches 30 of 1000 tables still fills 30 high-value buckets. A COBOL batch job nobody understands fills 12 more. Crystal Reports fills 8. No single source covers everything. Together they converge.
+
+**Convergence thresholds are per-property-type:**
+
+| Property | Converges when | Rationale |
+|----------|---------------|-----------|
+| Column exists + type | DDL alone (confidence 1.0) | Schema is fact |
+| NOT NULL / FK / CHECK | DDL alone (confidence 1.0) | Hard constraint |
+| Valid value set | 2+ independent sources agree | App enums may be stale; DDL CHECK is definitive |
+| Usage (which apps query it) | All scanned apps processed | Usage is additive, not convergent |
+| Liveness (alive/dead) | Audit logs + ≥1 app source agree | Both behavioral and structural evidence |
+| Semantics (what it means) | 2+ sources with consistent interpretation | Column names are ambiguous; usage reveals intent |
+
+**Convergence tells you when to stop scanning.** If you've scanned 3 of 5 apps and 90% of buckets have converged, the marginal value of reverse-engineering the COBOL is measurable: it would fill at most N remaining empty/single-source buckets. If N is small, skip it. If N is large, it's worth the effort. The decision is data-driven, not gut-driven.
+
+**Convergence also tells you where to focus humans.** Conflicted buckets are where expert attention has the highest leverage — two sources disagree, a human resolves it in 30 seconds, the bucket converges. The gap dashboard ranks conflicts by impact (how many downstream data products depend on this bucket?) so humans work the highest-leverage conflicts first.
+
+### Convergence on the dashboard
+
+```
+Buckets: 14,200 total (1000 tables × ~14.2 properties avg)
+
+  Converged:      11,340  (79.9%)  ████████████████████████████████  — done
+  Converging:      1,420  (10.0%)  ████                              — need 1 more source
+  Single-source:     890  ( 6.3%)  ███                               — low confidence
+  Conflicted:        210  ( 1.5%)  █                                 — needs human
+  Empty:             340  ( 2.4%)  █                                 — undiscovered
+
+Sources scanned: 5 of 7 known applications
+  Marginal value of next source (python-etl): ~180 buckets (fills 120 single-source, 60 empty)
+  Marginal value of next source (cobol-batch): ~40 buckets (fills 30 single-source, 10 empty)
+  → Recommendation: scan python-etl next, defer cobol-batch
+```
+
 ### Decoding
 
-Decoding resolves competing claims into a canonical understanding:
+Decoding resolves converged and conflicted buckets into a canonical understanding:
 
-- Two apps define different valid values for the same column → surface the conflict, let humans resolve
-- DDL says nullable, app validator says required → the app-level rule is the real constraint (higher confidence than schema absence)
-- Audit logs say table is dead, but a quarterly job still reads it → it's alive (quarterly)
-- Three different apps JOIN through the same tables differently → all three usage patterns are real, map them all
+- **Converged buckets** resolve automatically — the decoder records the canonical value, the contributing claims, and the convergence path.
+- **Conflicted buckets** surface for human review with full context: all competing claims, their sources, their confidence scores, and the specific disagreement. Two apps define different valid values for the same column → the human picks the canonical set and the decision is recorded.
+- **Single-source buckets** stay provisional — flagged with their confidence and marked as candidates for corroboration from the next scanned source.
 
-The decoder doesn't pick one truth when there are legitimately multiple truths. A table used differently by three apps has three usage profiles. All three are claims. All three feed the migration plan.
+The decoder also handles legitimate multiplicity: a table used differently by three apps doesn't have one usage profile — it has three. All three are claims. All three are valid. All three feed the migration plan. The decoder doesn't force false convergence; it surfaces the actual complexity.
 
-**The output is a canonical map:** every table classified (alive/dead/uncertain), every column annotated (used by whom, constrained how, means what), every relationship traced (FK, JOIN pattern, proc flow), every gap flagged.
+**The output is a canonical map:** every table classified (alive/dead/uncertain), every column annotated (used by whom, constrained how, means what), every relationship traced (FK, JOIN pattern, proc flow), every gap flagged — and every classification backed by a convergence record showing which sources contributed and how they agreed.
 
 ---
 
@@ -439,7 +484,7 @@ The original PLAN_FACTORY.md was 2000 lines. This is what we cut and why:
 | Cut | Why |
 |-----|-----|
 | Agent swarm coordination | Premature. Agents iterate independently. Coordination is a scheduling problem, not an architecture. |
-| Fountain code / RaptorQ analogies | Elegant metaphor, zero engineering value. Claims + scoring is the real pattern. |
+| Fountain code / RaptorQ implementation | The event stream / reactive projector implementation. The convergence *model* survived — it's how claims from multiple shitty sources justify confidence. |
 | Event stream architecture (NATS, Redis Streams) | Premature infrastructure. Claims can be JSONL files for v0. |
 | Passive projector pattern | Over-abstraction. Decoding reads claims, emits mutations. A function, not a reactive stream. |
 | Governance framework | Important but premature. Ship the factory, then figure out how it decays. |
