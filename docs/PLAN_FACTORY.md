@@ -1,11 +1,10 @@
-# The Data Factory — System Decomposition Engine
+# Crucible — System Decomposition Engine
 
 ## One-line promise
 **Decompose complex data systems — document corpora or legacy databases — into provably correct data products, using tournament-style competition scored by the spine.**
 
-Practical naming note: the repo is still called `factory`, but functionally
-this plan is a **system decomposition engine**. Its first distinctive act is
-archaeology / reconnaissance, not generic manufacturing.
+`crucible` is the system decomposition engine inside CMD+RVL. Its first
+distinctive act is archaeology / reconnaissance, not generic manufacturing.
 
 ---
 
@@ -23,7 +22,8 @@ Both problems share the same structure:
 3. You need to prove the output is correct, not just believe it
 4. Quality compounds — each round of evidence makes the next round's bar higher
 
-The factory solves both. The spine provides the proof infrastructure. The factory adds: scanning, claims, decoding, twinning, and tournament scoring.
+Crucible solves both. The spine provides the proof infrastructure. Crucible
+adds: scanning, claims, decoding, twinning, and tournament scoring.
 
 ---
 
@@ -31,7 +31,7 @@ The factory solves both. The spine provides the proof infrastructure. The factor
 
 The spine tools are the universal proof layer. They work anywhere there is data:
 
-| Tool | Role in the factory |
+| Tool | Role in Crucible |
 |------|-------------------|
 | `vacuum` + `hash` + `fingerprint` | Inventory and identify every file |
 | `profile` + `shape` | Understand structure, detect compatibility |
@@ -44,7 +44,9 @@ The spine tools are the universal proof layer. They work anywhere there is data:
 | `canon` | Canonical identity registries |
 | `airlock` | Prove what deterministic artifacts crossed into any model request |
 
-The factory doesn't replace the spine. It orchestrates it — scanning to discover what needs proving, claims to capture competing evidence, decoding to resolve conflicts, twins to test against, and tournaments to pick winners.
+Crucible doesn't replace the spine. It orchestrates it — scanning to discover
+what needs proving, claims to capture competing evidence, decoding to resolve
+conflicts, twins to test against, and tournaments to pick winners.
 
 ### Sequencing discipline
 
@@ -55,7 +57,7 @@ Two build-order rules keep the implementation honest:
    work is: scan -> claims -> decoding -> materialized candidate state -> spine
    scoring.
 2. **Use `airlock` whenever deterministic artifacts cross into a model
-   workflow.** Factory may use models for escalation review, archaeology
+   workflow.** Crucible may use models for escalation review, archaeology
    summaries, or transform drafting, but the boundary is downstream of
    deterministic artifacts and must be attested explicitly.
 
@@ -120,7 +122,7 @@ Scan is reconnaissance. It doesn't transform data — it produces claims about w
 ### Database scan
 
 ```bash
-factory scan --db oracle://... --output scan-results/
+crucible scan --db oracle://... --output scan-results/
 ```
 
 | Source | Claims produced | Confidence |
@@ -137,7 +139,7 @@ factory scan --db oracle://... --output scan-results/
 ### Codebase scan
 
 ```bash
-factory scan --repo /path/to/app --output scan-results/
+crucible scan --repo /path/to/app --output scan-results/
 ```
 
 Scan every application that touches the database. Expect mess — 20 years of Java, Python, shell scripts, Excel macros with ODBC, Crystal Reports, maybe COBOL. Each produces claims:
@@ -163,7 +165,7 @@ When scan encounters COBOL copybooks, it produces three artifacts from a single 
 3. **Shape definition** — structural compatibility contract for the spine's `shape` tool, generated directly from PIC clauses.
 
 ```bash
-factory scan --copybook LOAN-RECORD.cpy --output scan-results/
+crucible scan --copybook LOAN-RECORD.cpy --output scan-results/
 # Produces: claims/copybook-loan-record.claims.jsonl
 #           codecs/LOAN-RECORD.codec.json
 #           shapes/LOAN-RECORD.shape.json
@@ -312,7 +314,8 @@ The decoder also handles legitimate multiplicity: a table used differently by th
 
 Every database migration starts the same way: architects spend weeks drawing boxes on a whiteboard. "These tables go in the loan performance mart. Those go in compliance. That one goes... somewhere." It takes weeks. It's wrong. It changes. It's the single biggest reason migrations stall — not the data movement, but the *target design*.
 
-The factory already has everything it needs to derive the target architecture. After scan + decode, the canonical map contains:
+Crucible already has everything it needs to derive the target architecture.
+After scan + decode, the canonical map contains:
 
 - **Table co-access patterns** — from `v$sql` / codebase scan: which tables are always queried together
 - **FK graph** — from DDL: structural coupling between tables
@@ -323,10 +326,10 @@ The factory already has everything it needs to derive the target architecture. A
 
 That's a weighted graph. Tables are nodes. JOINs, FK relationships, co-access, lineage are edges. The question "how should this decompose into data products" is a graph partitioning problem: find clusters of tables that are tightly coupled internally and loosely coupled externally.
 
-### `factory decompose`
+### `crucible decompose`
 
 ```bash
-factory decompose --claims scan-results/ --decode-map decode-map.json --output decomposition/
+crucible decompose --claims scan-results/ --decode-map decode-map.json --output decomposition/
 ```
 
 The decompose step:
@@ -341,7 +344,7 @@ The decompose step:
 
 5. **Flag orphans.** Alive tables that don't cluster cleanly with anything. Dead tables that can be archived. Tables with uncertain liveness that need human investigation.
 
-6. **Generate target schemas.** Each cluster's tables, columns, constraints (from DDL), verify rules (from decoded application validators), and expected query patterns (from `v$sql`) are assembled into a Twin B schema definition. The architect doesn't write DDL. The factory writes DDL. The architect reviews and adjusts.
+6. **Generate target schemas.** Each cluster's tables, columns, constraints (from DDL), verify rules (from decoded application validators), and expected query patterns (from `v$sql`) are assembled into a Twin B schema definition. The architect doesn't write DDL. Crucible writes DDL. The architect reviews and adjusts.
 
 ### Decomposition output
 
@@ -416,7 +419,7 @@ The decompose step:
 
 The proposed boundaries pour into the convergence model like everything else. "Table `loan_master` belongs to cluster `loan-performance`" is a claim. If an agent working on deal structure also needs `loan_master`, that's a conflicting claim — `loan_master` appears in two clusters. The decoder surfaces it. A human decides: replicate it, assign it to one cluster and expose a service, or merge the two clusters. The decision is recorded. The boundary converges.
 
-**The decomposition itself is a convergent process.** Early boundaries are provisional. As the tournament runs and some boundaries fail (query replay can't complete because a JOIN crosses a boundary), the failed tests produce counter-evidence. The factory refines the boundaries and re-decomposes. The loop:
+**The decomposition itself is a convergent process.** Early boundaries are provisional. As the tournament runs and some boundaries fail (query replay can't complete because a JOIN crosses a boundary), the failed tests produce counter-evidence. Crucible refines the boundaries and re-decomposes. The loop:
 
 ```
 decompose → twin → tournament
@@ -431,13 +434,13 @@ Multiple decomposition strategies can compete in the same tournament:
 
 ```bash
 # Three strategies: tight clusters, loose clusters, domain-aligned
-factory decompose --claims scan-results/ --strategy tight --output decomp-tight/
-factory decompose --claims scan-results/ --strategy loose --output decomp-loose/
-factory decompose --claims scan-results/ --strategy domain --output decomp-domain/
+crucible decompose --claims scan-results/ --strategy tight --output decomp-tight/
+crucible decompose --claims scan-results/ --strategy loose --output decomp-loose/
+crucible decompose --claims scan-results/ --strategy domain --output decomp-domain/
 
 # Tournament scores each decomposition end-to-end
 for strategy in tight loose domain; do
-  factory tournament --decomposition decomp-${strategy}/ \
+  crucible tournament --decomposition decomp-${strategy}/ \
     --claims scan-results/ --output tournament-${strategy}/
 done
 
@@ -450,7 +453,7 @@ The "tight" strategy produces many small data products (high cohesion, low coupl
 
 Every database migration in history starts with architects spending weeks drawing boxes. The design is based on tribal knowledge, meetings, and gut feel. It takes weeks. It's wrong. It changes mid-migration. Nobody can prove the boundaries are right until the migration is half-done and something breaks.
 
-`factory decompose` replaces weeks of architecture workshops with a command that runs in minutes and produces falsifiable boundaries backed by convergence records. The boundaries come from evidence — co-access patterns, FK relationships, lineage, liveness — not from humans guessing. And the tournament proves whether they work before any data moves.
+`crucible decompose` replaces weeks of architecture workshops with a command that runs in minutes and produces falsifiable boundaries backed by convergence records. The boundaries come from evidence — co-access patterns, FK relationships, lineage, liveness — not from humans guessing. And the tournament proves whether they work before any data moves.
 
 ---
 
@@ -460,7 +463,7 @@ Every database migration in history starts with architects spending weeks drawin
 
 Decompose tells you what the targets are. The twin proves whether the data is correct. But something has to actually transform `LOAN_MASTER.STATUS char(1)` with values `{A, C, D, F, R}` into `loan_performance.loan_status varchar(20)` with values `{active, closed, default, foreclosure, reo}`. That transformation has to come from somewhere.
 
-The factory doesn't need to get transformations right on the first try. It needs to *author* them, *score* them (via the twin), and *iterate* until they pass. Three sources of transformation logic, layered:
+Crucible doesn't need to get transformations right on the first try. It needs to *author* them, *score* them (via the twin), and *iterate* until they pass. Three sources of transformation logic, layered:
 
 ### Layer 1: Auto-generated from decoded semantics
 
@@ -479,7 +482,7 @@ For a large class of transformations, the mapping is mechanically derivable from
 | **Code page** | Source EBCDIC (from copybook), target UTF-8 | Codec from copybook scan |
 
 ```bash
-factory transform --decode-map decode-map.json \
+crucible transform --decode-map decode-map.json \
   --source-schema oracle-loan-tables.sql \
   --target-schema decomp/schemas/loan-performance.sql \
   --output transforms/loan-performance.sql
@@ -560,7 +563,7 @@ The key property: **the transformation's origin doesn't affect the proof.** Whet
 
 ### Twinning the targets
 
-The Oracle monolith fragments into data products and marts — each proposed by `factory decompose` and validated by the tournament. Each target gets a **twin pair**: Twin A (legacy schema for replay) and Twin B (target schema for scoring). Twin B schemas are generated by the decompose step from decoded claims. Transformations are authored by the transform phase. See `twinning` plan for the two-twin design specification.
+The Oracle monolith fragments into data products and marts — each proposed by `crucible decompose` and validated by the tournament. Each target gets a **twin pair**: Twin A (legacy schema for replay) and Twin B (target schema for scoring). Twin B schemas are generated by the decompose step from decoded claims. Transformations are authored by the transform phase. See `twinning` plan for the two-twin design specification.
 
 This twin-pair shape is the later scale-phase form. Before `twinning` is real,
 the same candidate assembly and scoring loop can run against real Postgres.
@@ -614,7 +617,7 @@ Legacy Oracle: 1000 tables
 
 Scanned:           1000 / 1000  (100%)
 Classified:         847 / 1000  ( 85%)  — alive/dead/uncertain
-Decomposed:         847 / 847   (100%)  — proposed by factory decompose
+Decomposed:         847 / 847   (100%)  — proposed by crucible decompose
   Products:         24 proposed (modularity 0.73)
   Shared dims:      18 tables (flagged for replication/service)
   Orphans:          53 tables (39 dead → archive, 14 alive → investigate)
@@ -672,12 +675,12 @@ The transformation logic between Twin A and Twin B is itself testable — load t
 
 ### Replay
 
-`factory scan` captured historical query and execution patterns. `factory replay` turns those into an executable behavioral test suite.
+`crucible scan` captured historical query and execution patterns. `crucible replay` turns those into an executable behavioral test suite.
 
 **SQL replay** (Oracle, DB2, SQL Server): Captured from `v$sql`, `dba_hist_sqlstat`, or equivalent. Each historical query replayed verbatim against Twin A.
 
 ```bash
-factory replay --queries scan-results/queries/risk-app.sql \
+crucible replay --queries scan-results/queries/risk-app.sql \
   --oracle oracle://... \
   --twin localhost:5433 \
   --output replay-results/
@@ -692,7 +695,7 @@ For each historical query:
 **Program execution replay** (COBOL batch jobs): Captured from JCL job streams. Each JCL step maps to one program execution. The unit of replay is a compiled program, not a SQL query. Requires non-SQL twin types (VSAM, flat file) — see `twinning` plan for the generalized interface model.
 
 ```bash
-factory replay --jcl scan-results/jobs/NIGHTLY.jcl \
+crucible replay --jcl scan-results/jobs/NIGHTLY.jcl \
   --vsam-twin localhost:6000 \
   --db2-twin localhost:5433 \
   --mainframe-outputs expected/ \
@@ -802,11 +805,11 @@ That's why the previous attempts failed and this one won't. Not better technolog
 
 ---
 
-## Agent swarm (the parallel factory)
+## Agent swarm (the parallel crucible)
 
 ### The operational model
 
-The factory runs as 15-20 parallel `ntm` sessions, each an independent agent with its own working directory and (when needed) its own twin instance. There is no custom orchestration framework. Coordination happens through three mechanisms that already exist:
+Crucible runs as 15-20 parallel `ntm` sessions, each an independent agent with its own working directory and (when needed) its own twin instance. There is no custom orchestration framework. Coordination happens through three mechanisms that already exist:
 
 1. **Convergence dashboard** — every agent can read the current bucket state. When agent 7 finishes scanning the Java risk app, it commits 340 claims. The dashboard updates. Every other agent sees 340 buckets fill. No message passing required.
 2. **Git** — claims are JSONL files in a shared repo. Agents commit and push. No locks, no coordination service. Content-addressed claim IDs mean duplicate claims from different agents are idempotent.
@@ -814,7 +817,7 @@ The factory runs as 15-20 parallel `ntm` sessions, each an independent agent wit
 
 ### Swarm topology
 
-The factory runs in waves. Each wave saturates a phase before moving on:
+Crucible runs in waves. Each wave saturates a phase before moving on:
 
 **Wave 1: Scan (5-7 agents)**
 Each agent scans one application codebase or one slice of Oracle. They run in parallel with zero coordination — each produces independent claims.
@@ -897,7 +900,7 @@ This is the agent swarm from the old plan, minus the custom orchestration framew
 
 ## What we killed from the old plan
 
-The original PLAN_FACTORY.md was 2000 lines. This is what we cut and why:
+The original `PLAN_FACTORY.md` was 2000 lines. This is what we cut and why:
 
 | Cut | Why |
 |-----|-----|
@@ -905,11 +908,11 @@ The original PLAN_FACTORY.md was 2000 lines. This is what we cut and why:
 | Fountain code / RaptorQ implementation | The event stream / reactive projector implementation. The convergence *model* survived in `decoding` — it's how claims from multiple shitty sources justify confidence. |
 | Event stream architecture (NATS, Redis Streams) | Premature infrastructure. Claims are JSONL files. `decoding` reads them directly. |
 | Passive projector pattern | Over-abstraction. Decoding reads claims, emits mutations. A function, not a reactive stream. |
-| Governance framework | Important but premature. Ship the factory, then figure out how it decays. |
+| Governance framework | Important but premature. Ship Crucible, then figure out how it decays. |
 | Answer engine (charts, visual artifacts) | Downstream of the core problem. Build it when the data products exist. |
 | Cross-asset-class vision | Aspiration, not a plan. Prove CMBS first. |
 | Commercial model / pricing | Not an engineering artifact. |
-| 5-phase factory process (rigid) | Replaced with a tournament loop that works for both modes. |
+| 5-phase Crucible process (rigid) | Replaced with a tournament loop that works for both modes. |
 
 What survived: scanning, claims, decoding, twinning, tournament scoring, gold set flywheel, coverage tracking, evidence sealing. The core ideas are right. The 2000-line wrapper was wrong.
 
@@ -917,11 +920,11 @@ What survived: scanning, claims, decoding, twinning, tournament scoring, gold se
 
 ## Relationship to the spine
 
-The spine is the proof layer. The factory is the orchestration layer.
+The spine is the proof layer. Crucible is the orchestration layer.
 
 ```
 +----------------------------------------------------------+
-|                    FACTORY                                 |
+|                    CRUCIBLE                                |
 |                                                           |
 |   scan → claims → decode → decompose → twin → tournament  |
 |                               ^                    |      |
@@ -940,23 +943,23 @@ The spine is the proof layer. The factory is the orchestration layer.
 +-----------------------------------------------------------+
 ```
 
-When data flows from Oracle to a data product, it passes through the spine. When documents get re-parsed, the output goes through the spine. When a twin scores a candidate, it uses the spine. The factory orchestrates; the spine proves.
+When data flows from Oracle to a data product, it passes through the spine. When documents get re-parsed, the output goes through the spine. When a twin scores a candidate, it uses the spine. Crucible orchestrates; the spine proves.
 
 ---
 
 ## Implementation order
 
-1. **factory scan --db** — Database introspection. Highest confidence claims. Immediately useful.
-2. **factory scan --repo** — Codebase scanning. Start with SQL string extraction (easy, high value), add ORM/model parsing iteratively.
+1. **crucible scan --db** — Database introspection. Highest confidence claims. Immediately useful.
+2. **crucible scan --repo** — Codebase scanning. Start with SQL string extraction (easy, high value), add ORM/model parsing iteratively.
 3. **Claim format + storage** — JSONL files, content-addressed. No message bus.
 4. **Decode v0** — Resolve structural claims (DDL + codebase). Surface conflicts. Build the map.
-5. **factory decompose** — Co-access graph + community detection + boundary proposal. Generates target schemas and verify rules from decoded claims. The architecture step that replaces weeks of whiteboard sessions.
-6. **factory transform** — Auto-generate mechanical transforms from decoded semantics, extract patterns from scanned app code. Covers 60-80% of columns. Remaining columns authored by agents during tournament.
+5. **crucible decompose** — Co-access graph + community detection + boundary proposal. Generates target schemas and verify rules from decoded claims. The architecture step that replaces weeks of whiteboard sessions.
+6. **crucible transform** — Auto-generate mechanical transforms from decoded semantics, extract patterns from scanned app code. Covers 60-80% of columns. Remaining columns authored by agents during tournament.
 7. **Coverage dashboard** — Alive/dead/decomposed/mapped/proven counts. Includes boundary health, transform coverage, and decomposition metrics.
 8. **Real Postgres proof loop** — Materialize decoded / transformed candidate state in real Postgres first. Prove verify / benchmark / assess on real storage before the twin exists.
 9. **Two twins per target** — When iteration speed becomes the bottleneck, add Twin A (Oracle schema) + Twin B (generated target schema). Schemas from decompose step. Transforms from transform step. Rules from decoded claims.
 10. **Tournament loop** — Apply transforms, load twins, score, iterate. Agents author remaining transforms with twin feedback. Boundary validation alongside data quality scoring. Spine tools do the scoring.
-11. **factory replay** — Behavioral equivalence. Replay historical queries against Twin A. Compare result sets. Cross-boundary failures feed back to decompose.
+11. **crucible replay** — Behavioral equivalence. Replay historical queries against Twin A. Compare result sets. Cross-boundary failures feed back to decompose.
 12. **Evidence sealing** — Pack per data product. Static proof + behavioral proof + boundary proof + transform provenance + assess decision.
 
 Each step is independently useful. You don't need step 12 to get value from step 1.
@@ -965,7 +968,7 @@ Each step is independently useful. You don't need step 12 to get value from step
 
 ## On COBOL and mainframes
 
-The factory architecture was designed around two modes: document corpus decomposition and legacy SQL database decomposition. But the hardest legacy systems aren't SQL databases — they're COBOL mainframes. A 40-year-old COBOL/VSAM/IMS/CICS system with DB2 is the ultimate test of whether this architecture generalizes. This section analyzes what works, what breaks, and how to solve the gaps without changing the architecture.
+The Crucible architecture was designed around two modes: document corpus decomposition and legacy SQL database decomposition. But the hardest legacy systems aren't SQL databases — they're COBOL mainframes. A 40-year-old COBOL/VSAM/IMS/CICS system with DB2 is the ultimate test of whether this architecture generalizes. This section analyzes what works, what breaks, and how to solve the gaps without changing the architecture.
 
 ### What transfers cleanly
 
@@ -1037,9 +1040,9 @@ JCL job streams become the replay script. Each JCL step maps to one program exec
 | VSAM batch programs | ~30% | **Solvable** — VSAM twin (~3-4K LOC) + GnuCOBOL |
 | IMS programs | ~10% | **Hard** — IMS twin (~5-8K LOC), subtle navigation semantics |
 | CICS online transactions | ~15% | **Commercial** — Micro Focus, or mock top 50 transactions |
-| Assembler / vendor-specific | ~5% | **Manual** — factory identifies and classifies as SKIP |
+| Assembler / vendor-specific | ~5% | **Manual** — Crucible identifies and classifies as SKIP |
 
-The stack as designed handles 40%. With a VSAM twin and GnuCOBOL integration, it handles 70%. Adding IMS gets to 80%. The last 20% is either commercial tooling or manual work — but the factory's contribution is still real: it *finds and classifies* what needs manual handling instead of discovering it mid-migration.
+The stack as designed handles 40%. With a VSAM twin and GnuCOBOL integration, it handles 70%. Adding IMS gets to 80%. The last 20% is either commercial tooling or manual work — but Crucible's contribution is still real: it *finds and classifies* what needs manual handling instead of discovering it mid-migration.
 
 ### What's genuinely hard
 
@@ -1047,7 +1050,7 @@ The stack as designed handles 40%. With a VSAM twin and GnuCOBOL integration, it
 
 **CICS.** Full emulation is hundreds of commands — screen management (BMS), inter-program communication, temporary storage queues, transient data, file control, interval control. The pragmatic move: extract CICS transaction logic into testable units, mock the CICS API surface for the top 50 transactions, accept that the long tail gets manual testing. Or use Micro Focus Enterprise Server commercially.
 
-**Vendor extensions.** Programs that call assembler subroutines, use vendor-specific COBOL extensions (IBM vs Micro Focus vs Fujitsu), or depend on mainframe system services (RACF for security, SMF for auditing, HSM for storage management). These don't migrate — they get replaced. The factory's job is to identify them, classify them as SKIP, and surface them for human handling.
+**Vendor extensions.** Programs that call assembler subroutines, use vendor-specific COBOL extensions (IBM vs Micro Focus vs Fujitsu), or depend on mainframe system services (RACF for security, SMF for auditing, HSM for storage management). These don't migrate — they get replaced. Crucible's job is to identify them, classify them as SKIP, and surface them for human handling.
 
 ### What the architecture needs
 
@@ -1055,8 +1058,8 @@ Three additions to the existing stack, none of which change the architecture:
 
 1. **Generalized twin interface** — The twin becomes an interface emulator with pluggable protocol backends: Postgres, VSAM, IMS, flat files. Same in-memory storage and constraint enforcement layer, different protocols. (Specified in the `twinning` plan.)
 
-2. **Copybook codec layer** — Copybook parsing produces structural claims + conversion codec + shape definition from a single artifact. This bridges mainframe byte-level data into the spine's text/numeric world. (Specified in factory scan above.)
+2. **Copybook codec layer** — Copybook parsing produces structural claims + conversion codec + shape definition from a single artifact. This bridges mainframe byte-level data into the spine's text/numeric world. (Specified in Crucible scan above.)
 
-3. **Program execution replay** — Extend replay from "SQL query replay" to "program execution replay." JCL step maps to compile COBOL + run against twins + capture outputs + diff them. Same MATCH/MISMATCH/SKIP reporting, different execution unit. (Specified in factory replay above.)
+3. **Program execution replay** — Extend replay from "SQL query replay" to "program execution replay." JCL step maps to compile COBOL + run against twins + capture outputs + diff them. Same MATCH/MISMATCH/SKIP reporting, different execution unit. (Specified in Crucible replay above.)
 
-The convergence model, tournament scoring, evidence sealing, gold set flywheel, agent swarm — all unchanged. The factory scans different sources, the decoder resolves different claim shapes, the twins speak different protocols. The proof infrastructure is the same.
+The convergence model, tournament scoring, evidence sealing, gold set flywheel, agent swarm — all unchanged. Crucible scans different sources, the decoder resolves different claim shapes, the twins speak different protocols. The proof infrastructure is the same.
