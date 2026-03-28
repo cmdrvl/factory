@@ -191,17 +191,21 @@ Required top-level fields:
   "event": "claim.v0",
   "claim_id": "sha256:...",
   "source": {
-    "kind": "db_scan | repo_scan | file_scan",
+    "kind": "db_scan",
     "scanner": "crucible.scan.db@0.1.0",
-    "evidence_ref": "content-addressed pointer or file/line locator"
+    "artifact_id": "sha256:...",
+    "locator": {
+      "kind": "db_object",
+      "value": "fin.gl_actuals.amount"
+    }
   },
   "subject": {
-    "kind": "table | column | view | procedure | job | report | feed | artifact | consumer | mapping",
-    "id": "stable subject id"
+    "kind": "column",
+    "id": "fin.gl_actuals.amount"
   },
-  "property_type": "stable archaeology vocabulary value",
-  "value": {},
-  "confidence": 0.0
+  "property_type": "valid_values",
+  "value": ["posted", "unposted"],
+  "confidence": 0.92
 }
 ```
 
@@ -211,6 +215,102 @@ Rules:
 - every claim carries a concrete provenance pointer
 - confidence is scanner-owned, not model-inferred
 - no hidden enrichment
+
+### Frozen Phase 1 field contract
+
+Phase 1 should treat the following fields as frozen:
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `event` | string | exactly `claim.v0` |
+| `claim_id` | string | `sha256:<64 lowercase hex>` |
+| `source.kind` | enum | `db_scan`, `repo_scan`, `file_scan` |
+| `source.scanner` | string | `<scanner-name>@<version>` |
+| `source.artifact_id` | string | `sha256:<64 lowercase hex>` for the scanned artifact or exported metadata unit |
+| `source.locator.kind` | enum | `db_object`, `file_range`, `export_row`, `log_line`, `config_key`, `manual_note` |
+| `source.locator.value` | string | scanner-specific stable locator |
+| `subject.kind` | enum | frozen Phase 1 subject vocabulary |
+| `subject.id` | string | normalized stable identifier for the subject |
+| `property_type` | enum | frozen Phase 1 archaeology vocabulary |
+| `value` | JSON | normalized by `property_type` |
+| `confidence` | number | `0.0` to `1.0`, inclusive |
+
+Phase 1 should not add optional top-level fields. If a scanner has extra local
+detail, it belongs in the evidence artifact or inventory output, not in the
+shared claim wire format.
+
+### Subject identifiers
+
+`subject.kind` is fixed to:
+
+```text
+table | column | view | procedure | job | report | feed | artifact | consumer | mapping
+```
+
+`subject.id` should follow these conventions:
+
+| Kind | ID convention | Example |
+|------|---------------|---------|
+| `table` | `<schema>.<table>` | `fin.gl_actuals` |
+| `column` | `<schema>.<table>.<column>` | `fin.gl_actuals.amount` |
+| `view` | `<schema>.<view>` | `fin.v_close_pack` |
+| `procedure` | `<schema>.<procedure>` | `fin.refresh_close_pack` |
+| `job` | `<system>.<job_name>` | `autosys.fdmee_load_actuals` |
+| `report` | `<system>.<report_name>` | `hyperion.close_pack_ebitda` |
+| `feed` | `<system>.<feed_name>` | `fdmee.actuals_load` |
+| `artifact` | normalized relative path or export key | `exports/hfm/rules/account_map.csv` |
+| `consumer` | `<system>.<consumer_name>` | `finance.board_pack_mailer` |
+| `mapping` | `<domain>.<mapping_name>` | `accounts.ebitda_adjustments` |
+
+DB-like identifiers should be lowercased. Paths should use `/` separators. If
+the original system is case-sensitive or quoted, preserve the original spelling
+in the evidence artifact, not the normalized `subject.id`.
+
+### `value` normalization by property type
+
+Phase 1 freezes the following `value` shapes:
+
+| Property type | `value` shape |
+|---------------|---------------|
+| `exists` | `true` |
+| `schema` | normalized object containing only scalar/array metadata relevant to the subject |
+| `constraint` | object: `{"kind":"not_null\|pk\|fk\|check\|unique","detail":{...}}` |
+| `reads` | subject ref object: `{"kind":"table","id":"fin.gl_actuals"}` |
+| `writes` | subject ref object |
+| `depends_on` | subject ref object |
+| `used_by` | subject ref object |
+| `schedule` | object: `{"kind":"cron\|event\|manual\|unknown","value":"...","timezone":"..."}` |
+| `valid_values` | sorted array of strings |
+| `semantic_label` | normalized string |
+| `liveness` | one of `alive`, `stale`, `unknown`, `dead` |
+| `authoritative_for` | subject ref object |
+
+A Phase 1 subject ref object is always:
+
+```json
+{
+  "kind": "report",
+  "id": "hyperion.close_pack_ebitda"
+}
+```
+
+Raw SQL text, report definitions, stack traces, and other bulky evidence stay
+behind the `artifact_id` + `locator` boundary. The claim record carries only
+the normalized proposition.
+
+### Claim normalization rules
+
+The claim contract should be reproducible byte-for-byte:
+
+- no timestamps, hostnames, usernames, or run-local counters inside
+  `claim.v0`
+- object keys serialized in sorted order before hashing
+- arrays sorted and de-duplicated when order is not semantically meaningful
+- strings trimmed; repeated internal whitespace collapsed only where scanners
+  declare the value to be free text
+- `claim_id` computed from canonical JSON of every field except `claim_id`
+- any proposition outside the frozen subject/property vocabulary must be
+  inventoried, not emitted as `claim.v0`
 
 ### Output layout
 
@@ -265,6 +365,62 @@ Crucible Phase 1 is implementation-ready when the plan supports shipping:
 Crucible Phase 1 is functionally successful when one real legacy outcome slice
 can be scanned across all relevant surfaces and the resulting claims are good
 enough for `decoding` to produce a useful first canonical map.
+
+---
+
+## Phase 1 implementation checklist
+
+Crucible is Phase 1 implementation-ready when this checklist is concrete enough
+to code without reopening design questions:
+
+1. **CLI shell**
+   - `crucible scan db`
+   - `crucible scan repo`
+   - `crucible scan files`
+   - shared output directory and report writer wiring
+
+2. **Shared claim contract module**
+   - frozen enums for `source.kind`, `subject.kind`, and `property_type`
+   - canonical JSON serializer
+   - `claim_id` builder
+   - subject-id normalizer
+   - subject-ref/value helpers
+
+3. **Inventory writer**
+   - deterministic inventory records for scanned inputs
+   - `artifact_id` generation
+   - parsed-vs-inventoried-only classification
+
+4. **`scan db` v0**
+   - table / column / constraint extraction
+   - view / procedure inventory
+   - accessible job metadata extraction
+   - provenance locators for every emitted claim
+
+5. **`scan repo` v0**
+   - SQL literal extraction for Java and Python
+   - config / connection discovery
+   - enum / constant scanning for `valid_values` and `semantic_label`
+   - file-range provenance
+
+6. **`scan files` v0**
+   - recursive inventory
+   - high-value adapters for scheduler exports, logs, and structured extracts
+   - inventory-only fallback when parsing is not implemented
+
+7. **Scan report**
+   - claim counts by source kind and property type
+   - inventoried-only counts
+   - blind-spot summary
+   - subject coverage summary
+
+8. **Determinism tests**
+   - identical input rerun produces identical claims and report
+   - mixed-source fixture test for one bounded legacy slice
+   - normalization tests for subject IDs and claim hashing
+
+Phase 1 coding should start only after the first two checklist items are
+frozen.
 
 ---
 
