@@ -140,6 +140,27 @@ Examples that should produce `claim.v0` for `decoding`:
 - semantic labels or business meaning hints
 - dependency edges that are only weakly inferred or contradicted elsewhere
 
+### Two-channel scanner contract
+
+Every Phase 1 scanner should have exactly two semantic output channels:
+
+1. **Catalog channel**
+   Directly observed metadata normalized into the catalog model.
+2. **Claim channel**
+   Derived `claim.v0` records for propositions that need convergence.
+
+The distinction is adapter-owned, not decoder-owned.
+
+Scanner rule:
+
+- if the adapter can recover the fact directly and mechanically from a source
+  of record, write the catalog channel
+- if the adapter must infer, merge, rank, reconcile, or interpret competing
+  evidence, write the claim channel
+
+This boundary should be visible in code. A scanner should not emit everything
+as claims and leave the distinction to later tooling.
+
 ---
 
 ## Relationship to `cmdrvl-cli metadata`
@@ -169,6 +190,22 @@ shape for observed facts. In practice that means:
 
 `crucible` may stage local artifacts first, but the model it targets should
 remain aligned with `cmdrvl-cli metadata`.
+
+### Use the metadata substrate directly
+
+`crucible scan` should not treat the `cmdrvl-cli metadata` shell commands as
+its primary implementation strategy.
+
+Preferred implementation order:
+
+1. target the same metadata models
+2. call the metadata API directly or reuse the underlying metadata client where
+   practical
+3. use CLI command wrapping only as a bootstrap or manual fallback
+
+The important part is not whether the code lives in the same repo or process.
+The important part is that `crucible scan` writes into the existing metadata
+shape instead of inventing a second catalog.
 
 ---
 
@@ -282,6 +319,25 @@ The exact write path may be:
 - a local catalog snapshot file that mirrors the metadata shapes
 
 But the target model should remain aligned with `cmdrvl-cli metadata`.
+
+### Catalog vs claim examples
+
+Examples of catalog channel outputs:
+
+- `Table` / `TableInput`-shaped records for DB objects
+- `FileResponse` / `FileInput`-shaped records for files and exports
+- custom `ResourceInput`-shaped records for applications, jobs, reports,
+  feeds, mappings, and consumers
+- `LinkInput`-shaped records for direct dependencies
+- lineage graph node/edge structures for observed paths
+
+Examples of claim channel outputs:
+
+- `claim.v0` for inferred `valid_values`
+- `claim.v0` for `liveness`
+- `claim.v0` for `semantic_label`
+- `claim.v0` for `authoritative_for`
+- `claim.v0` for weak or conflicting dependency edges
 
 ### `claim.v0`
 
@@ -506,6 +562,7 @@ to code without reopening design questions:
    - resource/link staging for non-table scan entities
    - lineage graph staging
    - provenance attachment for observed facts
+   - direct metadata API or shared-client path preferred over CLI shell-out
 
 4. **Inventory writer**
    - deterministic inventory records for scanned inputs
@@ -543,6 +600,8 @@ to code without reopening design questions:
    - identical input rerun produces identical catalog, claims, and report
    - mixed-source fixture test for one bounded legacy slice
    - normalization tests for subject IDs and claim hashing
+   - classification tests proving observed facts stay on catalog channel and
+     inferred facts become claims
 
 Phase 1 coding should start only after the catalog target model and claim
 boundary are frozen.
