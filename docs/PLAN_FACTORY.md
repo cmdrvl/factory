@@ -1,1065 +1,345 @@
-# Crucible — System Decomposition Engine
+# Crucible — Phase 1
 
 ## One-line promise
-**Decompose complex data systems — document corpora or legacy databases — into provably correct data products, using tournament-style competition scored by the spine.**
+**Turn a legacy estate into deterministic archaeology claims with enough
+coverage and provenance to support one bounded replacement outcome.**
 
-`crucible` is the system decomposition engine inside CMD+RVL. Its first
-distinctive act is archaeology / reconnaissance, not generic manufacturing.
+This repo is no longer carrying the whole end-state Crucible vision as an
+implementation plan. Phase 1 is intentionally smaller:
 
----
+- ship `crucible scan`
+- emit stable `claim.v0` files
+- support one real legacy outcome slice
+- feed `decoding`
 
-## Problem
-
-Two versions of the same problem:
-
-**Document corpus decomposition.** A million files from trustee sites, data rooms, and servicer portals. Excel, PDF, CSV. Messy, inconsistent, spanning years of format changes. The goal: verified, structured data with every value traceable to a source cell. This is the structured finance use case — CMBS, CLO, ABS.
-
-**Legacy system decomposition.** A 20-year-old 1000-table Oracle database inside a bank. Five failed retirement attempts over 12 years. Stored procedures calling stored procedures. Views on views. Jobs nobody remembers. Applications connecting from unknown sources. The goal: decompose the monolith into purpose-built data products and marts, with provable migration at every step.
-
-Both problems share the same structure:
-1. You don't fully understand what you have
-2. Multiple sources tell competing stories about the same data
-3. You need to prove the output is correct, not just believe it
-4. Quality compounds — each round of evidence makes the next round's bar higher
-
-Crucible solves both. The spine provides the proof infrastructure. Crucible
-adds: scanning, claims, decoding, twinning, and tournament scoring.
+Everything else is deferred until we learn from real slices.
 
 ---
 
-## The spine underneath
+## What Phase 1 is
 
-The spine tools are the universal proof layer. They work anywhere there is data:
+Phase 1 is the archaeology layer for bounded modernization work.
 
-| Tool | Role in Crucible |
-|------|-------------------|
-| `vacuum` + `hash` + `fingerprint` | Inventory and identify every file |
-| `profile` + `shape` | Understand structure, detect compatibility |
-| `lock` | Content-address and seal inputs |
-| `verify` | Check data contracts (rules the data must satisfy) |
-| `rvl` | Materiality analysis now; future exhaustive audit surface under `rvl` |
-| `benchmark` | Score extraction quality against gold set |
-| `assess` | Policy-based go/no-go decisions |
-| `pack` | Seal evidence (tamper-evident, content-addressed) |
-| `canon` | Canonical identity registries |
-| `airlock` | Prove what deterministic artifacts crossed into any model request |
+For Hyperion-style knockouts, the first job is not:
 
-Crucible doesn't replace the spine. It orchestrates it — scanning to discover
-what needs proving, claims to capture competing evidence, decoding to resolve
-conflicts, twins to test against, and tournaments to pick winners.
+- decompose the full estate
+- generate the full target architecture
+- build twins
+- run tournaments
 
-### Sequencing discipline
+The first job is:
 
-Two build-order rules keep the implementation honest:
+1. inventory the relevant legacy surfaces
+2. extract deterministic claims from them
+3. preserve provenance tightly enough that humans can resolve ambiguity
+4. hand those claims to `decoding`
 
-1. **Decode / transform on deterministic artifacts plus real Postgres first.**
-   Do not block the first proof loop on `twinning`. The first thing that must
-   work is: scan -> claims -> decoding -> materialized candidate state -> spine
-   scoring.
-2. **Use `airlock` whenever deterministic artifacts cross into a model
-   workflow.** Crucible may use models for escalation review, archaeology
-   summaries, or transform drafting, but the boundary is downstream of
-   deterministic artifacts and must be attested explicitly.
-
-Short version:
-
-- `decoding` decides what canonical state should be
-- real Postgres proves the first materialization loop
-- `twinning` arrives later as the speed/protocol layer
-- `airlock` mediates model-boundary crossings
+If Phase 1 does that well, one outcome slice can be scanned, understood, and
+rebuilt with a mostly manual replacement loop.
 
 ---
 
-## Two modes
+## What Phase 1 is not
 
-### Mode 1: Document corpus → structured data
+Phase 1 is NOT:
 
-**Input:** Messy document corpus (PDFs, Excel, CSV from trustees, servicers, data rooms).
+- `crucible decompose`
+- `crucible transform`
+- `crucible replay`
+- `crucible tournament`
+- `twinning` integration
+- a general orchestration framework
+- a message bus
+- a full migration factory
 
-**Output:** Verified structured data in a target database. Every record traceable to a source file through a deterministic chain.
-
-**The loop:**
-1. **Scan** the corpus — `vacuum` | `hash` | `fingerprint` to inventory and classify
-2. **Extract** — parsers emit claims (value + evidence + confidence) for each recognized document
-3. **Decode** — resolve competing claims into canonical rows using declared policy
-4. **Score** — `benchmark` against gold set, `verify` against rules, `assess` for go/no-go
-5. **Seal** — `pack` the evidence
-6. **Harvest** — `benchmark harvest` grows the gold set from approved results
-7. Go to 2. The bar is higher every round.
-
-The key insight: extraction is a tournament. Run N parser configurations against the same documents. Score them all against the same gold set. Best one wins. The gold set grows. Next round the bar is higher.
-
-### Mode 2: Legacy database → data products
-
-**Input:** Monolithic legacy database (Oracle, SQL Server, DB2) + every application, script, report, and job that touches it.
-
-**Output:** Purpose-built data products and marts, each provably equivalent to the subset of the legacy system it replaces. Sealed evidence for auditors and regulators.
-
-**The loop:**
-1. **Scan** the legacy system — schema, stored procs, views, jobs, audit logs, connection patterns
-2. **Scan** every application codebase — Java, Python, COBOL, Excel macros, Crystal Reports, whatever touches Oracle
-3. **Claim** — each scan produces claims about what the database is, what it does, who uses it, how. Claims are messy and contradictory. That's expected.
-4. **Decode** — resolve competing usage claims into a canonical understanding. Surface conflicts for human review. Build the map.
-5. **Decompose** — derive optimal data product boundaries from the co-access graph, FK structure, lineage, and business function labels. Generate target schemas and verify rules. Compete multiple decomposition strategies.
-6. **Transform** — auto-generate mappings from decoded semantics (type coercion, value expansion, null sentinel replacement), extract transformation patterns from scanned application code, let agents author the rest with the twin as feedback loop.
-7. **Infer** — scanned parsers and ingestors reveal fingerprints and profiles of input documents. Apply those to the document corpus to identify gaps and holes in what Oracle actually ingested.
-8. **Reconcile** — compare what Oracle contains against what the documents say it should contain. The spine tools (`rvl`, `verify`, and later `rvl --exhaustive` when a full diff surface is needed) prove where Oracle is right and where it has holes.
-9. **Twin** the targets — each data product/mart gets a twin pair (Twin A + Twin B) with schemas from decompose and transforms from the transform phase.
-10. **Assemble** — apply transformations to source data, load into twins, score.
-11. **Tournament** — multiple assembly strategies compete. Score against Oracle as ground truth, against document evidence, against the gold set. Cross-boundary failures feed back to decompose. Transform failures feed back to the agent loop. Best assembly wins per target.
-12. **Seal** — evidence packs prove each data product is correct before cutover.
-
-The data flowing from Oracle to each data product passes through the spine: shape for structure, verify for rules, `rvl` for materiality, future `rvl --exhaustive` or `pack diff --full` for audit-grade full diff, benchmark for accuracy, assess for go/no-go, pack for evidence. The spine is everywhere there is data.
+Those may become later phases. They are not part of the current implementation
+wedge.
 
 ---
 
-## Phase 1: Scan (Archaeology)
+## Target user story
 
-### What scan does
+For one bounded legacy outcome:
 
-Scan is reconnaissance. It doesn't transform data — it produces claims about what exists.
+- a governed Hyperion export
+- one close report family
+- one reconciliation output
+- one recurring management package
 
-### Database scan
+an operator should be able to run:
 
 ```bash
-crucible scan --db oracle://... --output scan-results/
+crucible scan db ...
+crucible scan repo ...
+crucible scan files ...
 ```
 
-| Source | Claims produced | Confidence |
-|--------|----------------|------------|
-| DDL (tables, columns, types, PKs, FKs, CHECK, NOT NULL) | Schema structure, hard constraints | 1.0 |
-| Stored procedures + triggers | Data flow, transformation logic, implicit rules | 0.6-0.8 |
-| Views + materialized views | Derived data relationships, aggregation logic | 0.7-0.9 |
-| Scheduled jobs | What runs, when, what it touches | 0.7 |
-| `v$sql` / `dba_hist_sqlstat` | Which tables are actually queried, how often, by whom | 0.8 |
-| `dba_audit_trail` | Who connects, what they do | 0.7 |
-| Row counts, null rates, value distributions | What's alive, what's dead, what's sparse | 0.5-0.8 |
-| FK relationships + JOIN patterns | Lineage between tables | 0.9 |
+and receive:
 
-### Codebase scan
+- content-addressed claim files
+- an inventory of what was scanned
+- a scan report showing coverage and gaps
+- enough evidence for `decoding` to converge the first map of the slice
 
-```bash
-crucible scan --repo /path/to/app --output scan-results/
+That is the Phase 1 bar.
+
+---
+
+## Required surfaces
+
+Phase 1 must cover the four surfaces already identified in the Hyperion use
+case:
+
+1. configured surface
+2. executed surface
+3. human surface
+4. consumption surface
+
+Not every source inside those surfaces has to be parsed on day one. But the
+scan layer must be able to ingest artifacts from all four classes and emit
+claims or explicit "unparsed but inventoried" entries with provenance.
+
+---
+
+## Phase 1 commands
+
+Phase 1 has exactly one top-level command family:
+
+```text
+crucible scan <SUBCOMMAND> [OPTIONS]
 ```
 
-Scan every application that touches the database. Expect mess — 20 years of Java, Python, shell scripts, Excel macros with ODBC, Crystal Reports, maybe COBOL. Each produces claims:
+Subcommands:
 
-| Source | Claims produced | Confidence |
-|--------|----------------|------------|
-| SQL queries in application code | Which tables/columns matter, JOIN paths, WHERE clauses | 0.7-0.8 |
-| ORM models (Hibernate, SQLAlchemy, Django) | Field types, validators, relationships | 0.8-0.9 |
-| Report definitions (Crystal, SSRS, Jasper) | Expected data shapes, aggregations | 0.6-0.7 |
-| API endpoints / route handlers | Which data is served to users, expected response shapes | 0.7 |
-| Test files | Domain assertions, edge cases, expected values | 0.8 |
-| Config files / connection strings | Which apps connect to which schemas | 0.9 |
-| Enum definitions / constant tables | Valid value sets | 0.8 |
-| COBOL copybooks | Exact byte-level field layouts (PIC clauses), record structure, data types | 1.0 |
-| JCL job definitions | Program-to-dataset lineage, step dependencies, execution schedules, condition codes | 0.8-0.9 |
-
-### Copybook codec layer
-
-When scan encounters COBOL copybooks, it produces three artifacts from a single parse:
-
-1. **Structural claims** (confidence 1.0) — field names, types, offsets, lengths. `PIC S9(7)V99 COMP-3` declares a signed 7.2 packed decimal at an exact byte offset. No ambiguity.
-2. **Conversion codec** — deterministic EBCDIC-to-ASCII, packed decimal-to-numeric, zone decimal-to-numeric conversion for every field in the record. This codec is how mainframe data enters the spine's text/numeric world.
-3. **Shape definition** — structural compatibility contract for the spine's `shape` tool, generated directly from PIC clauses.
-
-```bash
-crucible scan --copybook LOAN-RECORD.cpy --output scan-results/
-# Produces: claims/copybook-loan-record.claims.jsonl
-#           codecs/LOAN-RECORD.codec.json
-#           shapes/LOAN-RECORD.shape.json
+```text
+crucible scan db
+crucible scan repo
+crucible scan files
 ```
 
-### Inferred fingerprints and profiles
+### `crucible scan db`
 
-When scan encounters parsers and ingestors in the application code — the code that *feeds* Oracle — it infers fingerprints and profiles for the input documents those parsers consumed. These fingerprints can then be applied to the actual document corpus to:
+Purpose: inspect a legacy database or exported database metadata and emit
+claims about structure, usage hints, and liveness evidence.
 
-- Identify documents that were parsed and loaded into Oracle
-- Identify documents that should have been parsed but weren't (gaps)
-- Identify documents that were parsed incorrectly (holes — where Oracle's data doesn't match the source)
-- Decide whether re-parsing from original documents produces higher quality than extracting from Oracle
+Minimum inputs:
 
-### Scan output
+- live connection string OR exported metadata files
+- optional include/exclude filters for schemas and tables
 
+Minimum outputs:
+
+- `claim.v0` for tables, columns, constraints, views, procedures, jobs, and
+  observed usage/liveness evidence
+- scan report summarizing covered objects and blind spots
+
+### `crucible scan repo`
+
+Purpose: inspect codebases and adjacent application assets that touch the
+legacy system.
+
+Minimum Phase 1 coverage:
+
+- SQL string extraction
+- connection/config discovery
+- ORM/model metadata where obvious
+- report definition files where parseable
+- tests and enum/constants files where they express semantic or valid-value
+  hints
+
+Minimum outputs:
+
+- `claim.v0` for reads, writes, joins, valid values, semantic labels, and
+  consumer dependencies
+- file-level provenance for every emitted claim
+
+### `crucible scan files`
+
+Purpose: inventory and parse local artifact directories around the legacy
+outcome slice.
+
+Typical inputs:
+
+- metadata exports
+- load rules
+- calc scripts
+- scheduler exports
+- logs
+- output extracts
+- downstream deliverables
+- spreadsheets and templates
+
+Minimum outputs:
+
+- `claim.v0` where adapters exist
+- inventory records plus provenance when adapters do not exist yet
+- scan report listing parsed vs inventoried-only artifacts
+
+---
+
+## Phase 1 data model
+
+### `claim.v0`
+
+Phase 1 must emit one stable JSONL contract that `decoding` can consume
+directly.
+
+Required top-level fields:
+
+```json
+{
+  "event": "claim.v0",
+  "claim_id": "sha256:...",
+  "source": {
+    "kind": "db_scan | repo_scan | file_scan",
+    "scanner": "crucible.scan.db@0.1.0",
+    "evidence_ref": "content-addressed pointer or file/line locator"
+  },
+  "subject": {
+    "kind": "table | column | view | procedure | job | report | feed | artifact | consumer | mapping",
+    "id": "stable subject id"
+  },
+  "property_type": "stable archaeology vocabulary value",
+  "value": {},
+  "confidence": 0.0
+}
 ```
+
+Rules:
+
+- `claim_id` is content-addressed from normalized payload
+- every claim carries a concrete provenance pointer
+- confidence is scanner-owned, not model-inferred
+- no hidden enrichment
+
+### Output layout
+
+```text
 scan-results/
-├── claims/                  # All claims as JSONL (one file per source)
-│   ├── ddl.claims.jsonl
-│   ├── stored-procs.claims.jsonl
-│   ├── app-java-risk.claims.jsonl
-│   ├── app-python-reporting.claims.jsonl
-│   └── crystal-reports.claims.jsonl
-├── inferred/
-│   ├── fingerprints/        # Inferred document fingerprints from parser code
-│   └── profiles/            # Inferred data profiles from application models
-├── lineage/
-│   └── table-lineage.json   # Table-to-table, app-to-table relationships
-├── liveness/
-│   └── activity-report.json # What's alive, what's dead, usage frequency
-└── scan-report.json         # Summary: what was scanned, what was found, gaps
+├── claims/
+│   ├── db.claims.jsonl
+│   ├── repo.claims.jsonl
+│   └── files.claims.jsonl
+├── inventory/
+│   ├── db.inventory.json
+│   ├── repo.inventory.json
+│   └── files.inventory.json
+└── scan-report.json
 ```
 
-### What scan doesn't do
+The exact filenames can vary, but this three-part shape may not:
 
-It doesn't understand intent. If the bank's analysts know "DSCR below 1.0 means distressed" but that rule isn't encoded anywhere, scan won't find it. The gap report flags what's missing. Humans fill in the tribal knowledge.
+- claims
+- inventory
+- report
 
 ---
 
-## Phase 2: Claims + Decoding
+## Phase 1 adapters
 
-### Claims
+The scan layer needs a small adapter model, not a giant plugin framework.
 
-Every piece of evidence about what the legacy system is and does gets expressed as a claim:
+Day-one adapters should be hand-written and explicit. Good Phase 1 candidates:
 
-```json
-{
-  "event": "claim.v0",
-  "claim_id": "sha256:...",
-  "source": {
-    "kind": "codebase_scan",
-    "repo": "risk-reporting-app",
-    "file": "src/main/java/com/bank/risk/LoanService.java:142",
-    "evidence": "SELECT balance, status FROM loan_master WHERE deal_id = ?"
-  },
-  "proposed": {
-    "subject": "table:loan_master",
-    "assertion": "queried_by",
-    "detail": {
-      "application": "risk-reporting-app",
-      "columns_used": ["balance", "status", "deal_id"],
-      "join_path": "loan_master.deal_id → deal_header.deal_id",
-      "frequency": "daily"
-    }
-  },
-  "confidence": 0.75
-}
-```
+- Oracle / SQL Server / Postgres metadata adapter
+- SQL literal extractor for Java and Python
+- config / connection string extractor
+- filesystem inventory adapter
+- simple log / scheduler export adapter
 
-Claims can be about:
-- **Structure** — "table X has FK to table Y" (from DDL)
-- **Usage** — "the risk app queries columns A, B, C daily" (from codebase)
-- **Rules** — "column balance is never negative" (from CHECK constraint or app validator)
-- **Liveness** — "table old_backup hasn't been read since 2021" (from audit logs)
-- **Semantics** — "column 'status' means loan status with values active/closed/default" (from Java enum)
-- **Lineage** — "stored proc P reads from table A, writes to table B" (from proc analysis)
-
-Claims are expected to be messy, overlapping, and contradictory. That's the point.
-
-### Convergence (the fountain model)
-
-Each property of each table is a **bucket**: `(table, column, property_type)`. Claims pour into buckets from multiple independent sources. The `decoding` tool tracks the state of every bucket using its convergence engine:
-
-| State | Meaning | Action |
-|-------|---------|--------|
-| **Empty** | No source has said anything about this | Unknown — may be dead, may be undiscovered |
-| **Single-source** | One source, one claim | Low confidence — need corroboration |
-| **Converging** | Multiple sources, consistent | Confidence rises with each independent confirmation |
-| **Converged** | Enough independent sources agree | High confidence — move on |
-| **Conflicted** | Sources actively disagree | Needs human resolution |
-
-The key insight from fountain codes: **you don't need every source to be complete. You need enough independent sources agreeing to converge.** A Java app that only touches 30 of 1000 tables still fills 30 high-value buckets. A COBOL batch job nobody understands fills 12 more. Crystal Reports fills 8. No single source covers everything. Together they converge.
-
-**Convergence thresholds are per-property-type:**
-
-| Property | Converges when | Rationale |
-|----------|---------------|-----------|
-| Column exists + type | DDL alone (confidence 1.0) | Schema is fact |
-| NOT NULL / FK / CHECK | DDL alone (confidence 1.0) | Hard constraint |
-| Valid value set | 2+ independent sources agree | App enums may be stale; DDL CHECK is definitive |
-| Usage (which apps query it) | All scanned apps processed | Usage is additive, not convergent |
-| Liveness (alive/dead) | Audit logs + 1+ app source agree | Both behavioral and structural evidence |
-| Semantics (what it means) | 2+ sources with consistent interpretation | Column names are ambiguous; usage reveals intent |
-
-**Convergence tells you when to stop scanning.** If you've scanned 3 of 5 apps and 90% of buckets have converged, the marginal value of reverse-engineering the COBOL is measurable: it would fill at most N remaining empty/single-source buckets. If N is small, skip it. If N is large, it's worth the effort. The decision is data-driven, not gut-driven.
-
-**Convergence also tells you where to focus humans.** Conflicted buckets are where expert attention has the highest leverage — two sources disagree, a human resolves it in 30 seconds, the bucket converges. The gap dashboard ranks conflicts by impact (how many downstream data products depend on this bucket?) so humans work the highest-leverage conflicts first.
-
-See `decoding` plan for full convergence model details — bucket state machine, claim shapes, thresholds, and dashboard specification.
-
-### Convergence on the dashboard
-
-```
-Buckets: 14,200 total (1000 tables x ~14.2 properties avg)
-
-  Converged:      11,340  (79.9%)  --------------------------------  done
-  Converging:      1,420  (10.0%)  ----                              need 1 more source
-  Single-source:     890  ( 6.3%)  ---                               low confidence
-  Conflicted:        210  ( 1.5%)  -                                 needs human
-  Empty:             340  ( 2.4%)  -                                 undiscovered
-
-Sources scanned: 5 of 7 known applications
-  Marginal value of next source (python-etl): ~180 buckets (fills 120 single-source, 60 empty)
-  Marginal value of next source (cobol-batch): ~40 buckets (fills 30 single-source, 10 empty)
-  -> Recommendation: scan python-etl next, defer cobol-batch
-```
-
-### Decoding
-
-`decoding` resolves converged and conflicted buckets into a canonical understanding (see `decoding` plan for full specification):
-
-- **Converged buckets** resolve automatically — the decoder records the canonical value, the contributing claims, and the convergence path.
-- **Conflicted buckets** surface for human review with full context: all competing claims, their sources, their confidence scores, and the specific disagreement. Two apps define different valid values for the same column → the human picks the canonical set and the decision is recorded.
-- **Single-source buckets** stay provisional — flagged with their confidence and marked as candidates for corroboration from the next scanned source.
-
-The decoder also handles legitimate multiplicity: a table used differently by three apps doesn't have one usage profile — it has three. All three are claims. All three are valid. All three feed the migration plan. The decoder doesn't force false convergence; it surfaces the actual complexity.
-
-**The output is a canonical map:** every table classified (alive/dead/uncertain), every column annotated (used by whom, constrained how, means what), every relationship traced (FK, JOIN pattern, proc flow), every gap flagged — and every classification backed by a convergence record showing which sources contributed and how they agreed.
+Anything more elaborate should wait until repeated need is proven.
 
 ---
 
-## Phase 3: Decompose (Derive Target Architecture from Evidence)
-
-### The problem nobody talks about
-
-Every database migration starts the same way: architects spend weeks drawing boxes on a whiteboard. "These tables go in the loan performance mart. Those go in compliance. That one goes... somewhere." It takes weeks. It's wrong. It changes. It's the single biggest reason migrations stall — not the data movement, but the *target design*.
-
-Crucible already has everything it needs to derive the target architecture.
-After scan + decode, the canonical map contains:
-
-- **Table co-access patterns** — from `v$sql` / codebase scan: which tables are always queried together
-- **FK graph** — from DDL: structural coupling between tables
-- **Application ownership** — from codebase scan: which apps touch which tables
-- **Lineage flows** — from stored procs, views, JCL: data flowing between tables
-- **Liveness classification** — from audit logs + decode: what's alive, what's dead
-- **Business function labels** — from application scan: "risk-reporting-app" maps to the risk domain
-
-That's a weighted graph. Tables are nodes. JOINs, FK relationships, co-access, lineage are edges. The question "how should this decompose into data products" is a graph partitioning problem: find clusters of tables that are tightly coupled internally and loosely coupled externally.
-
-### `crucible decompose`
-
-```bash
-crucible decompose --claims scan-results/ --decode-map decode-map.json --output decomposition/
-```
-
-The decompose step:
-
-1. **Build the co-access graph.** `weight(A, B)` = how often tables A and B appear in the same query, join path, stored proc, or application. Edges from FK relationships get structural weight. Edges from lineage (proc reads A, writes B) get flow weight. Edges from co-access in the same application get usage weight.
-
-2. **Run community detection.** Louvain or Leiden algorithm — O(n log n), well-understood, deterministic. Finds natural clusters of tables that maximize internal cohesion and minimize external coupling. The modularity score quantifies how clean the boundaries are.
-
-3. **Overlay business function labels.** The risk-reporting-app touches tables in cluster 1. The compliance reports touch tables in cluster 3. The algorithm finds structural clusters; the application labels give them business names. Cluster 1 becomes "loan-performance." Cluster 3 becomes "compliance."
-
-4. **Identify shared dimensions.** Some tables appear in multiple clusters above a threshold — `counterparty_master` is queried by risk, compliance, and portfolio analytics. These are shared dimensions that need replication or a common service. The decomposition flags them explicitly.
-
-5. **Flag orphans.** Alive tables that don't cluster cleanly with anything. Dead tables that can be archived. Tables with uncertain liveness that need human investigation.
-
-6. **Generate target schemas.** Each cluster's tables, columns, constraints (from DDL), verify rules (from decoded application validators), and expected query patterns (from `v$sql`) are assembled into a Twin B schema definition. The architect doesn't write DDL. Crucible writes DDL. The architect reviews and adjusts.
-
-### Decomposition output
-
-```json
-{
-  "version": "factory_decompose.v0",
-  "source": {
-    "total_tables": 1000,
-    "alive_tables": 847,
-    "dead_tables": 153
-  },
-  "decomposition": {
-    "strategy": "co-access-community",
-    "modularity_score": 0.73,
-    "products_proposed": 24,
-    "tables_assigned": 623,
-    "shared_dimensions": 18,
-    "orphans": 53,
-    "cross_cluster_edges": 34
-  },
-  "products": [
-    {
-      "name": "loan-performance",
-      "tables": 47,
-      "primary_consumers": ["risk-reporting-app", "surveillance-app"],
-      "cohesion": 0.91,
-      "coupling": 0.12,
-      "verify_rules_derived": 23,
-      "query_patterns_captured": 912,
-      "schema_generated": "schemas/loan-performance.sql",
-      "confidence": "converged"
-    },
-    {
-      "name": "deal-structure",
-      "tables": 23,
-      "primary_consumers": ["portfolio-analytics", "investor-reporting"],
-      "cohesion": 0.87,
-      "coupling": 0.18,
-      "verify_rules_derived": 14,
-      "query_patterns_captured": 340,
-      "schema_generated": "schemas/deal-structure.sql",
-      "confidence": "converged"
-    }
-  ],
-  "shared_dimensions": [
-    {
-      "table": "counterparty_master",
-      "appears_in": ["loan-performance", "deal-structure", "compliance"],
-      "recommendation": "replicate_or_service",
-      "access_pattern": "read-only from all consumers",
-      "rows": 12400
-    }
-  ],
-  "orphans": [
-    {
-      "table": "tmp_batch_2019",
-      "liveness": "dead",
-      "last_accessed": "2019-04-12",
-      "recommendation": "archive"
-    },
-    {
-      "table": "custom_analytics_staging",
-      "liveness": "alive",
-      "consumers": ["unknown — ad-hoc SQL from 2 connection pools"],
-      "recommendation": "investigate"
-    }
-  ]
-}
-```
-
-### Boundaries are claims
-
-The proposed boundaries pour into the convergence model like everything else. "Table `loan_master` belongs to cluster `loan-performance`" is a claim. If an agent working on deal structure also needs `loan_master`, that's a conflicting claim — `loan_master` appears in two clusters. The decoder surfaces it. A human decides: replicate it, assign it to one cluster and expose a service, or merge the two clusters. The decision is recorded. The boundary converges.
-
-**The decomposition itself is a convergent process.** Early boundaries are provisional. As the tournament runs and some boundaries fail (query replay can't complete because a JOIN crosses a boundary), the failed tests produce counter-evidence. Crucible refines the boundaries and re-decomposes. The loop:
-
-```
-decompose → twin → tournament
-    ^                   |
-    |   (boundary wrong) |
-    +-------------------+
-```
-
-### Competing decompositions
-
-Multiple decomposition strategies can compete in the same tournament:
-
-```bash
-# Three strategies: tight clusters, loose clusters, domain-aligned
-crucible decompose --claims scan-results/ --strategy tight --output decomp-tight/
-crucible decompose --claims scan-results/ --strategy loose --output decomp-loose/
-crucible decompose --claims scan-results/ --strategy domain --output decomp-domain/
-
-# Tournament scores each decomposition end-to-end
-for strategy in tight loose domain; do
-  crucible tournament --decomposition decomp-${strategy}/ \
-    --claims scan-results/ --output tournament-${strategy}/
-done
-
-# Winner: the decomposition where the most data products pass at the highest score
-```
-
-The "tight" strategy produces many small data products (high cohesion, low coupling, but more shared dimensions to manage). The "loose" strategy produces fewer larger products (simpler to manage, but lower cohesion). The "domain" strategy aligns boundaries with business functions (may not match structural access patterns). The tournament proves which decomposition actually works — not which one looks best on a whiteboard.
-
-### What this replaces
-
-Every database migration in history starts with architects spending weeks drawing boxes. The design is based on tribal knowledge, meetings, and gut feel. It takes weeks. It's wrong. It changes mid-migration. Nobody can prove the boundaries are right until the migration is half-done and something breaks.
-
-`crucible decompose` replaces weeks of architecture workshops with a command that runs in minutes and produces falsifiable boundaries backed by convergence records. The boundaries come from evidence — co-access patterns, FK relationships, lineage, liveness — not from humans guessing. And the tournament proves whether they work before any data moves.
-
----
-
-## Phase 3.5: Transform (Source Schema to Target Schema)
-
-### The gap in the plan
-
-Decompose tells you what the targets are. The twin proves whether the data is correct. But something has to actually transform `LOAN_MASTER.STATUS char(1)` with values `{A, C, D, F, R}` into `loan_performance.loan_status varchar(20)` with values `{active, closed, default, foreclosure, reo}`. That transformation has to come from somewhere.
-
-Crucible doesn't need to get transformations right on the first try. It needs to *author* them, *score* them (via the twin), and *iterate* until they pass. Three sources of transformation logic, layered:
-
-### Layer 1: Auto-generated from decoded semantics
-
-The canonical map says: source `STATUS char(1)` has valid values `{A, C, D, F, R}` meaning `{active, closed, default, foreclosure, reo}` (from the Java enum claim + the DDL CHECK claim, converged). The target schema says: `loan_status varchar(20)` with a CHECK constraint listing the full words.
-
-For a large class of transformations, the mapping is mechanically derivable from decoded claims:
-
-| Pattern | Decoded evidence | Generated transformation |
-|---------|-----------------|-------------------------|
-| **Value expansion** | Source enum `{A, C, D}` with labels from app scan | `CASE WHEN status = 'A' THEN 'active' ...` |
-| **Type widening** | Source `numeric(7,2)`, target `numeric(15,2)` | Direct cast |
-| **Column rename** | Source `CUST_NM`, decoded semantics = "customer name", target `customer_name` | Rename in SELECT |
-| **Unit conversion** | Source `balance` in cents (from COBOL PIC 9(9)V99), target in dollars | `balance / 100.0` |
-| **Date format** | Source `YYYYMMDD` as `PIC 9(8)`, target `DATE` | `TO_DATE(origination_dt, 'YYYYMMDD')` |
-| **Null handling** | Source uses `999999` as sentinel (from app scan: `if (val == 999999) skip`), target uses NULL | `CASE WHEN val = 999999 THEN NULL ELSE val END` |
-| **Code page** | Source EBCDIC (from copybook), target UTF-8 | Codec from copybook scan |
-
-```bash
-crucible transform --decode-map decode-map.json \
-  --source-schema oracle-loan-tables.sql \
-  --target-schema decomp/schemas/loan-performance.sql \
-  --output transforms/loan-performance.sql
-```
-
-The auto-generated transformation covers the mechanical cases — type coercion, value mapping, column rename, null sentinel replacement, unit conversion. For a well-scanned legacy system, this might be 60-70% of the columns.
-
-### Layer 2: Extracted from scanned application code
-
-The risk-reporting-app already reads from Oracle and transforms data for its UI. The Python ETL already reads from Oracle and writes to a downstream mart. Scan captured that code. Those transformations are claims:
-
-```json
-{
-  "event": "claim.v0",
-  "claim_id": "sha256:...",
-  "source": {
-    "kind": "codebase_scan",
-    "repo": "risk-reporting-app",
-    "file": "src/main/java/com/bank/risk/LoanMapper.java:87",
-    "evidence": "dto.setLoanStatus(StatusEnum.fromCode(entity.getStatus()).getLabel())"
-  },
-  "proposed": {
-    "subject": "transform:loan_master.status",
-    "source_column": "STATUS",
-    "target_semantics": "full_label",
-    "mapping": {"A": "Active", "C": "Closed", "D": "Default", "F": "Foreclosure", "R": "REO"},
-    "casing": "title_case"
-  },
-  "confidence": 0.8
-}
-```
-
-Multiple applications may transform the same column differently — the risk app uses title case, the compliance report uses uppercase, the surveillance API uses lowercase. Each is a claim about how the source data should be interpreted. The decoder resolves them using the same convergence model: if 3 of 4 apps agree on the mapping (differing only in casing), the values converge and the casing is a per-target choice.
-
-### Layer 3: Agent-authored with twin feedback
-
-For transformations that can't be auto-generated or extracted — complex business logic, multi-table joins, conditional aggregations — agents write them. The twin is the feedback loop:
-
-1. Agent receives: source schema, target schema, decoded semantics, auto-generated partial transform
-2. Agent writes the remaining transformation logic
-3. Agent runs it against Twin B (target schema with verify rules)
-4. Twin rejects bad data — type coercion fails, constraints violated, verify rules broken
-5. Agent reads the error, fixes the transformation, re-runs
-6. Repeat 20x per hour until Twin B accepts the data and benchmark scores pass
-
-The agent doesn't need to understand the legacy system. The decoded canonical map already tells it what each column means, what the valid values are, what the constraints are. The agent's job is to write the SQL/Python that maps source to target. The twin's job is to prove whether the mapping is correct.
-
-### Transform output
-
-```
-transforms/loan-performance/
-+-- auto-generated.sql          # Layer 1: mechanical transforms from decoded semantics
-+-- extracted/                   # Layer 2: transform patterns from scanned app code
-|   +-- risk-app-mapper.claim.jsonl
-|   +-- python-etl-loader.claim.jsonl
-+-- agent-authored.sql           # Layer 3: remaining transforms written by tournament agents
-+-- combined.sql                 # Merged: auto + extracted + agent, ready for tournament
-+-- transform-report.json        # Coverage: which columns auto-generated, extracted, or agent-written
-```
-
-### Transform coverage
-
-```
-Data product: loan-performance (47 source tables, 312 columns)
-
-  Auto-generated:    203 / 312  (65%)  — type coercion, value mapping, rename, null handling
-  Extracted from apps: 54 / 312  (17%)  — patterns from risk-app, python-etl, compliance-report
-  Agent-authored:      41 / 312  (13%)  — complex logic written during tournament
-  Identity (no change): 14 / 312  ( 4%)  — column passes through unchanged
-  Unmapped:              0 / 312  ( 0%)  — all columns covered
-```
-
-The key property: **the transformation's origin doesn't affect the proof.** Whether a mapping was auto-generated, extracted, or agent-authored, the twin scores it the same way. The tournament doesn't care how you got the answer. It cares whether the answer is right.
-
----
-
-## Phase 4: Twin + Tournament
-
-### Twinning the targets
-
-The Oracle monolith fragments into data products and marts — each proposed by `crucible decompose` and validated by the tournament. Each target gets a **twin pair**: Twin A (legacy schema for replay) and Twin B (target schema for scoring). Twin B schemas are generated by the decompose step from decoded claims. Transformations are authored by the transform phase. See `twinning` plan for the two-twin design specification.
-
-This twin-pair shape is the later scale-phase form. Before `twinning` is real,
-the same candidate assembly and scoring loop can run against real Postgres.
-
-```bash
-# Twin A: Oracle schema for behavioral replay (tables in this cluster)
-twinning postgres --schema decomp/schemas/oracle-loan-tables.sql --port 5433
-
-# Twin B: Generated target schema with derived verify rules
-twinning postgres --schema decomp/schemas/loan-performance.sql \
-  --rules decomp/rules/loan-performance.json --port 5434
-```
-
-### Tournament scoring
-
-For each target data product, the tournament asks: can we assemble correct data from the available sources, AND are the boundaries right?
-
-**Candidates:**
-- Direct Oracle extraction (SELECT from the relevant tables)
-- Document re-parsing (re-extract from original source documents where gaps were found)
-- Hybrid (Oracle extraction + document re-parsing for specific gaps)
-- Multiple transformation strategies for the same source data
-
-**Scoring:**
-- `benchmark` against gold set (human-validated reference values)
-- `verify` against rules (data contracts derived from scan + human review)
-- future `rvl --exhaustive` against Oracle when an audit-grade full diff is needed
-- `rvl` for materiality (which differences matter?)
-- `assess` for go/no-go (policy decision: PROCEED, PROCEED_WITH_RISK, ESCALATE, BLOCK)
-
-**Boundary validation (new):**
-- Query replay that crosses a boundary fails → signal that the boundary is wrong
-- Verify rules referencing tables outside the boundary → signal that a table is missing
-- FK violations because a referenced table is in a different product → shared dimension or boundary error
-
-**The loop:**
-1. Assemble candidate data for target mart
-2. Load into twin
-3. Score (benchmark + verify + rvl + assess; add future `rvl --exhaustive` for full-diff audit packs)
-4. If PROCEED: seal evidence, harvest gold set, move to next target
-5. If BOUNDARY_ERROR: feed back to decompose, refine, re-twin, re-score
-6. If ASSEMBLY_ERROR: iterate on assembly strategy, re-score
-7. The gold set grows with each approved target. Next target has a higher bar.
-
-### Coverage dashboard
-
-At any point, the dashboard shows:
-
-```
-Legacy Oracle: 1000 tables
-
-Scanned:           1000 / 1000  (100%)
-Classified:         847 / 1000  ( 85%)  — alive/dead/uncertain
-Decomposed:         847 / 847   (100%)  — proposed by crucible decompose
-  Products:         24 proposed (modularity 0.73)
-  Shared dims:      18 tables (flagged for replication/service)
-  Orphans:          53 tables (39 dead → archive, 14 alive → investigate)
-Mapped to target:   623 / 847   ( 74%)  — assigned and accepted by human review
-Proven equivalent:  412 / 623   ( 66%)  — evidence pack sealed
-Remaining:          211 / 623   ( 34%)  — in progress or blocked
-
-Boundary health:
-  Clean:            21 / 24     — no cross-boundary failures
-  Needs refinement:  2 / 24     — query replay flagged missing tables
-  Blocked:           1 / 24     — shared dimension conflict unresolved
-
-Dead tables:        153          — not queried in 2+ years, no active consumers
-Uncertain:          153          — conflicting claims, needs human review
-
-Data products:      24 targets
-  Completed:        14 / 24     — all tables proven, evidence sealed
-  In progress:       7 / 24     — tournament running
-  Blocked:           3 / 24     — waiting on human resolution of conflicts
-```
-
-This is what the previous 5 retirement attempts didn't have: a precise, continuously-updated map of what's done, what's left, and what's blocking. And for the first time in any migration ever: the target architecture itself was derived from evidence, not drawn on a whiteboard.
-
----
-
-## Phase 5: Replay (Behavioral Equivalence)
-
-### The two-twin design
-
-Each data product gets two twins:
-
-**Twin A — Oracle schema.** Same tables, same columns, same relationships as the legacy database. Load the migrated data into Oracle's own schema structure. This twin speaks Oracle's language.
-
-**Twin B — Target schema.** The clean, purpose-built schema for the data product. Load the transformed data. This twin speaks the new model's language.
-
-```bash
-# Twin A: Oracle schema for the loan performance slice
-twinning postgres --schema oracle-loan-tables.sql --port 5433
-
-# Twin B: New data product schema
-twinning postgres --schema loan-perf-schema.sql --rules loan-perf-rules.json --port 5434
-```
-
-### Why two twins
-
-The query translation problem disappears. You don't need to rewrite `SELECT balance, status FROM loan_master WHERE deal_id = ?` into new-schema SQL. You replay it verbatim against Twin A, which has the same schema as Oracle. If the result sets match, the data migration didn't lose or corrupt anything.
-
-Twin B proves a different thing: the new data product is correct on its own terms. Verify rules pass, benchmark scores meet the bar, assess says PROCEED.
-
-Two independent proofs:
-1. **Behavioral equivalence** — Twin A + replay: "the migrated data answers the same questions Oracle did"
-2. **Target correctness** — Twin B + spine scoring: "the new data product satisfies its own contracts"
-
-The transformation logic between Twin A and Twin B is itself testable — load the same source data into both, export, run future `rvl --exhaustive` (or `pack diff --full` if the audit surface lands there). Any difference is either an intentional schema change (documented) or a bug.
-
-### Replay
-
-`crucible scan` captured historical query and execution patterns. `crucible replay` turns those into an executable behavioral test suite.
-
-**SQL replay** (Oracle, DB2, SQL Server): Captured from `v$sql`, `dba_hist_sqlstat`, or equivalent. Each historical query replayed verbatim against Twin A.
-
-```bash
-crucible replay --queries scan-results/queries/risk-app.sql \
-  --oracle oracle://... \
-  --twin localhost:5433 \
-  --output replay-results/
-```
-
-For each historical query:
-1. Run against the legacy system (live, or cached result sets from scan)
-2. Run the same SQL verbatim against Twin A
-3. Compare result sets (row-for-row, column-for-column)
-4. Classify: MATCH, MISMATCH, or SKIP (query uses unsupported SQL features)
-
-**Program execution replay** (COBOL batch jobs): Captured from JCL job streams. Each JCL step maps to one program execution. The unit of replay is a compiled program, not a SQL query. Requires non-SQL twin types (VSAM, flat file) — see `twinning` plan for the generalized interface model.
-
-```bash
-crucible replay --jcl scan-results/jobs/NIGHTLY.jcl \
-  --vsam-twin localhost:6000 \
-  --db2-twin localhost:5433 \
-  --mainframe-outputs expected/ \
-  --output replay-results/
-```
-
-For each JCL step:
-1. Set up input datasets (load into appropriate twins — VSAM, DB2, flat file)
-2. Run the COBOL program (compiled via GnuCOBOL) against the twins
-3. Capture output datasets and return codes
-4. Compare outputs against known-good mainframe outputs
-5. Classify: MATCH, MISMATCH, or SKIP (program uses unsupported system services)
-
-### Replay output
-
-```json
-{
-  "version": "factory_replay.v0",
-  "data_product": "loan-performance-mart",
-  "queries_total": 912,
-  "queries_matched": 905,
-  "queries_mismatched": 4,
-  "queries_skipped": 3,
-  "match_rate": 0.9923,
-  "mismatches": [
-    {
-      "query_id": "sha256:...",
-      "source_app": "risk-reporting-app",
-      "sql": "SELECT SUM(balance) FROM loan_master WHERE status = 'delinquent'",
-      "oracle_result": "45230000.00",
-      "twin_result": "45229500.00",
-      "delta": "500.00",
-      "classification": "rounding"
-    }
-  ],
-  "skipped": [
-    {
-      "query_id": "sha256:...",
-      "source_app": "legacy-cobol-batch",
-      "sql": "SELECT ... CONNECT BY PRIOR ...",
-      "reason": "hierarchical_query_unsupported"
-    }
-  ]
-}
-```
-
-### Replay coverage on the dashboard
-
-The coverage dashboard gains a new axis:
-
-```
-Data product: loan-performance-mart
-
-  Static proof:
-    Tables compared:    47 / 47    (100%)
-    Rows matched:       99.98%
-    Verify rules:       PASS (12/12)
-    Benchmark accuracy: 0.997
-
-  Behavioral proof:
-    Query patterns:     912 captured from 5 applications
-    Replayed:           909 / 912  (99.7%)
-    Matched:            905 / 909  (99.6%)
-    Mismatched:         4          (all classified as rounding)
-    Skipped:            3          (hierarchical queries — manual equivalents pending)
-
-  Assess decision:      PROCEED_WITH_RISK
-  Risk factors:         4 rounding mismatches (bounded, < $0.01 per row)
-```
-
-### What the bank couldn't say before
-
-Previous attempts: "We migrated the data. It looks right. We think it works."
-
-With replay: "We replayed 12 months of production queries from 5 applications against the migrated data. 99.6% returned identical results. 4 queries had sub-penny rounding differences. 3 Oracle-specific hierarchical queries need manual equivalents. Here's the evidence pack."
-
-That's not a belief. That's a proof.
-
----
-
-## Phase 6: Prove + Seal
-
-### Evidence per data product
-
-Each completed data product migration produces:
-
-```
-evidence/loan-performance-mart/
-├── scan-claims.pack           # All claims about the source tables
-├── decode-map.pack            # Canonical understanding of what these tables do
-├── assembly-strategy.json     # How the data was assembled (Oracle + re-parsed docs)
-├── replay.report.json         # Behavioral equivalence (query replay results)
-├── benchmark.report.json      # Gold set accuracy
-├── verify.report.json         # Rule compliance
-├── exhaustive.report.json     # Future full diff vs Oracle source (under `rvl` or `pack diff`)
-├── rvl.report.json            # Materiality analysis
-├── assess.report.json         # Policy decision (covers both static + behavioral)
-├── data.lock.json             # Content-addressed lockfile for the data
-└── evidence.pack              # Sealed evidence bundle
-```
-
-### What the auditors see
-
-Not "we migrated the database." Instead: "Here are 24 evidence packs, one per data product. Each one proves two things independently: the data matches (static equivalence via `rvl`, future exhaustive diff when needed, `verify`, and `benchmark`) AND the system behaves the same (behavioral equivalence via query replay). Every number traces to a source. Every query is reproducible. Every decision is sealed."
-
-That's why the previous attempts failed and this one won't. Not better technology — better proof.
-
----
-
-## Agent swarm (the parallel crucible)
-
-### The operational model
-
-Crucible runs as 15-20 parallel `ntm` sessions, each an independent agent with its own working directory and (when needed) its own twin instance. There is no custom orchestration framework. Coordination happens through three mechanisms that already exist:
-
-1. **Convergence dashboard** — every agent can read the current bucket state. When agent 7 finishes scanning the Java risk app, it commits 340 claims. The dashboard updates. Every other agent sees 340 buckets fill. No message passing required.
-2. **Git** — claims are JSONL files in a shared repo. Agents commit and push. No locks, no coordination service. Content-addressed claim IDs mean duplicate claims from different agents are idempotent.
-3. **Work allocation by phase** — agents self-select from the highest-value available work, guided by the dashboard.
-
-### Swarm topology
-
-Crucible runs in waves. Each wave saturates a phase before moving on:
-
-**Wave 1: Scan (5-7 agents)**
-Each agent scans one application codebase or one slice of Oracle. They run in parallel with zero coordination — each produces independent claims.
-
-```
-ntm spawn scan-java-risk        # Agent scans the Java risk app
-ntm spawn scan-python-reporting  # Agent scans the Python reporting scripts
-ntm spawn scan-crystal-reports   # Agent scans Crystal Reports definitions
-ntm spawn scan-oracle-procs      # Agent scans stored procedures
-ntm spawn scan-oracle-jobs       # Agent scans scheduled jobs + audit logs
-```
-
-Each agent: scan → produce claims (JSONL) → commit → push. When all scan agents finish, the convergence dashboard shows the state of all 14,200 buckets. Humans review conflicted buckets.
-
-**Wave 1.5: Decompose (1-3 agents)**
-After scan converges and humans resolve conflicts, decompose agents propose and compete target architectures.
-
-```
-ntm spawn decompose-tight          # Tight clustering (many small products)
-ntm spawn decompose-domain         # Domain-aligned clustering
-ntm spawn decompose-hybrid         # Hybrid: structural clusters refined by domain
-```
-
-Each agent: build co-access graph → run community detection with strategy-specific parameters → generate target schemas → commit. A meta-tournament compares the decomposition strategies before the main tournament begins.
-
-**Wave 2: Tournament (10-15 agents)**
-Each agent works one data product from the winning decomposition. Boots its own twin pair (Twin A + Twin B), assembles candidate data, loads, scores, iterates.
-
-```
-ntm spawn dp-loan-performance   # Agent works the loan performance mart
-ntm spawn dp-deal-structure     # Agent works the deal structure mart
-ntm spawn dp-compliance         # Agent works the compliance data product
-ntm spawn dp-surveillance       # Agent works the surveillance mart
-...                             # 10-15 data products in parallel
-```
-
-Each agent: assemble → load twin → score (benchmark + verify + rvl + assess, plus future `rvl --exhaustive` when needed) → iterate → seal evidence pack. Agents don't interact. Each twin is isolated. Each evidence pack is independent.
-
-**Wave 3: Replay (5-10 agents)**
-Each agent replays historical queries for one data product against its Twin A.
-
-```
-ntm spawn replay-loan-perf      # Replay risk app queries against loan perf Twin A
-ntm spawn replay-compliance     # Replay compliance queries against compliance Twin A
-...
-```
-
-### Why this works without a framework
-
-The convergence model is the coordination mechanism. Agents are the fountain encoders — they spray claims from independent sources. The convergence dashboard is the decoder — it tracks when enough claims have landed to justify confidence. No agent needs to know what any other agent is doing. They just:
-
-1. Read the dashboard to find the highest-value work
-2. Do the work (scan, assemble, score, replay)
-3. Commit results (claims, reports, evidence packs)
-4. The dashboard updates
-
-This is the agent swarm from the old plan, minus the custom orchestration framework. `ntm` handles session management. Git handles state sharing. Convergence handles coordination. Content-addressing handles deduplication.
-
-### Agent isolation guarantees
-
-- Each agent has its own working directory (ntm provides this)
-- Each agent boots its own twin instances (no shared database state)
-- Claims are content-addressed (duplicate claims from different agents are harmless)
-- Evidence packs are per-data-product (no cross-agent output conflicts)
-- The only shared mutable state is the git repo, and JSONL is append-friendly
-
-### Scaling
-
-| Phase | Agents | Bottleneck | Duration |
-|-------|--------|-----------|----------|
-| Scan | 5-7 | Number of applications + Oracle slices | Hours to days |
-| Human review | 1-3 | Conflicted buckets | Days (front-loaded) |
-| Tournament | 10-15 | Number of data products | Days to weeks |
-| Replay | 5-10 | Number of data products × query volume | Hours to days |
-| Evidence sealing | 1 per product | Sequential per product (fast) | Minutes each |
-
-20 agents working for 2 weeks can scan, assemble, tournament-score, replay, and seal evidence for 24 data products. That's a 1000-table Oracle database decomposed with proof in 2 weeks. The previous attempts took years.
-
----
-
-## What we killed from the old plan
-
-The original `PLAN_FACTORY.md` was 2000 lines. This is what we cut and why:
-
-| Cut | Why |
-|-----|-----|
-| Agent swarm custom framework | Replaced with ntm + git + convergence. The swarm concept survived — the custom orchestration layer didn't. |
-| Fountain code / RaptorQ implementation | The event stream / reactive projector implementation. The convergence *model* survived in `decoding` — it's how claims from multiple shitty sources justify confidence. |
-| Event stream architecture (NATS, Redis Streams) | Premature infrastructure. Claims are JSONL files. `decoding` reads them directly. |
-| Passive projector pattern | Over-abstraction. Decoding reads claims, emits mutations. A function, not a reactive stream. |
-| Governance framework | Important but premature. Ship Crucible, then figure out how it decays. |
-| Answer engine (charts, visual artifacts) | Downstream of the core problem. Build it when the data products exist. |
-| Cross-asset-class vision | Aspiration, not a plan. Prove CMBS first. |
-| Commercial model / pricing | Not an engineering artifact. |
-| 5-phase Crucible process (rigid) | Replaced with a tournament loop that works for both modes. |
-
-What survived: scanning, claims, decoding, twinning, tournament scoring, gold set flywheel, coverage tracking, evidence sealing. The core ideas are right. The 2000-line wrapper was wrong.
-
----
-
-## Relationship to the spine
-
-The spine is the proof layer. Crucible is the orchestration layer.
-
-```
-+----------------------------------------------------------+
-|                    CRUCIBLE                                |
-|                                                           |
-|   scan → claims → decode → decompose → twin → tournament  |
-|                               ^                    |      |
-|                               |  (boundary wrong)  |      |
-|                               +--------------------+      |
-|                                          ↓                |
-|                                  replay → seal            |
-|                                                           |
-+-----------------------------------------------------------+
-|                    SPINE                                   |
-|                                                           |
-|   vacuum hash fingerprint profile lock shape rvl          |
-|   verify benchmark assess canon pack                      |
-|                                                           |
-|   (works anywhere there is data)                          |
-+-----------------------------------------------------------+
-```
-
-When data flows from Oracle to a data product, it passes through the spine. When documents get re-parsed, the output goes through the spine. When a twin scores a candidate, it uses the spine. Crucible orchestrates; the spine proves.
+## Phase 1 exit criteria
+
+Crucible Phase 1 is implementation-ready when the plan supports shipping:
+
+1. `crucible scan db`
+2. `crucible scan repo`
+3. `crucible scan files`
+4. stable `claim.v0`
+5. scan report with coverage / blind spots
+6. deterministic reruns for identical inputs
+
+Crucible Phase 1 is functionally successful when one real legacy outcome slice
+can be scanned across all relevant surfaces and the resulting claims are good
+enough for `decoding` to produce a useful first canonical map.
 
 ---
 
 ## Implementation order
 
-1. **crucible scan --db** — Database introspection. Highest confidence claims. Immediately useful.
-2. **crucible scan --repo** — Codebase scanning. Start with SQL string extraction (easy, high value), add ORM/model parsing iteratively.
-3. **Claim format + storage** — JSONL files, content-addressed. No message bus.
-4. **Decode v0** — Resolve structural claims (DDL + codebase). Surface conflicts. Build the map.
-5. **crucible decompose** — Co-access graph + community detection + boundary proposal. Generates target schemas and verify rules from decoded claims. The architecture step that replaces weeks of whiteboard sessions.
-6. **crucible transform** — Auto-generate mechanical transforms from decoded semantics, extract patterns from scanned app code. Covers 60-80% of columns. Remaining columns authored by agents during tournament.
-7. **Coverage dashboard** — Alive/dead/decomposed/mapped/proven counts. Includes boundary health, transform coverage, and decomposition metrics.
-8. **Real Postgres proof loop** — Materialize decoded / transformed candidate state in real Postgres first. Prove verify / benchmark / assess on real storage before the twin exists.
-9. **Two twins per target** — When iteration speed becomes the bottleneck, add Twin A (Oracle schema) + Twin B (generated target schema). Schemas from decompose step. Transforms from transform step. Rules from decoded claims.
-10. **Tournament loop** — Apply transforms, load twins, score, iterate. Agents author remaining transforms with twin feedback. Boundary validation alongside data quality scoring. Spine tools do the scoring.
-11. **crucible replay** — Behavioral equivalence. Replay historical queries against Twin A. Compare result sets. Cross-boundary failures feed back to decompose.
-12. **Evidence sealing** — Pack per data product. Static proof + behavioral proof + boundary proof + transform provenance + assess decision.
+1. **Claim contract**
+   Freeze `claim.v0`, scanner identifiers, provenance rules, and output
+   directory layout.
 
-Each step is independently useful. You don't need step 12 to get value from step 1.
+2. **`scan db`**
+   Ship the highest-confidence scanner first. Tables, columns, PK/FK, NOT NULL,
+   CHECK, views, procedures, and accessible job metadata.
+
+3. **`scan repo`**
+   Ship SQL string extraction, connection/config discovery, and obvious enum /
+   model scanning.
+
+4. **`scan files`**
+   Ship filesystem inventory plus a small number of high-value adapters for
+   logs, exports, and report artifacts.
+
+5. **Scan report**
+   Summarize scanned sources, emitted claims, inventoried-only artifacts, and
+   major blind spots.
+
+Everything after that is Phase 2+.
 
 ---
 
-## On COBOL and mainframes
+## Deferred after Phase 1
 
-The Crucible architecture was designed around two modes: document corpus decomposition and legacy SQL database decomposition. But the hardest legacy systems aren't SQL databases — they're COBOL mainframes. A 40-year-old COBOL/VSAM/IMS/CICS system with DB2 is the ultimate test of whether this architecture generalizes. This section analyzes what works, what breaks, and how to solve the gaps without changing the architecture.
+These are explicitly parked:
 
-### What transfers cleanly
+- `crucible decompose`
+- `crucible transform`
+- `crucible replay`
+- `crucible tournament`
+- coverage dashboard beyond the scan report
+- twin integration
+- generic swarm framework
+- message bus / event-stream infrastructure
 
-**The convergence model works perfectly.** COBOL mainframes actually have *more* independent sources than Oracle. COBOL programs, JCL job streams, copybooks, DB2 DDL, CICS transaction definitions, batch schedules, operator manuals — each emits claims about what the system does. The fountain model doesn't care that the sources are in COBOL. It cares that they're independent.
+If we build one or two real outcome slices and find ourselves repeating manual
+steps around replacement assembly, then we promote the next abstraction into a
+real Phase 2 plan.
 
-**Tournament scoring works identically.** Data is data. `benchmark`, `verify`, `rvl`, `assess`, `pack` — none of them know or care that the source was a mainframe. Assemble candidate data, score it, best one wins. If a full audit diff is needed, that lands under future `rvl --exhaustive`.
+---
 
-**Evidence sealing works identically.** The spine doesn't touch the source system.
+## Relationship to `decoding`
 
-### What works but gets harder
+Crucible Phase 1 stops at claims.
 
-**Scanning COBOL is surprisingly tractable.** COBOL is in some ways *easier* to scan than Java. The `DATA DIVISION` declares every field with exact byte layout — `PIC S9(7)V99 COMP-3` tells you it's a signed 7.2 packed decimal. Copybooks are the schema. You get incredibly precise structural claims at confidence 1.0.
-
-The hard part: COBOL programs are 10,000-50,000 lines of spaghetti maintained for 40 years by copy-paste. You find 12 programs that do almost the same thing with slight variations. The convergence model sees 12 sources "agreeing" — but they're copies, not independent corroboration. The derivation graph in `decoding` handles this via clone detection: diff every program pair, cluster by similarity, each clone cluster votes as one source with weight 1, not as N independent sources. COBOL is the easiest language to do this for — no metaprogramming, no dynamic dispatch, no monkey-patching.
-
-**JCL is the richest claim source on the mainframe.** A single JCL job declares which programs run, in what order, what files each step reads (DD statements map to VSAM datasets, flat files, DB2 tables), what files each step writes, and condition codes for branching. JCL IS the lineage graph. A JCL parser producing claims covers program-to-dataset relationships across the entire mainframe in one pass. JCL is a structured format with well-documented syntax — parsing is tractable.
-
-**DB2 on the mainframe works almost like Oracle.** DB2 has SQL traces, DDL introspection, and the SQL is close enough to Postgres that the twin handles it. Maybe 40-60% of a typical mainframe's data lives in DB2. For that slice, the stack works today.
-
-### The key reframe: the twin is an interface emulator
-
-The twin's core abstraction is "speak the protocol the client expects." That's the right idea — it's just too narrow if we only implement SQL wire protocols. The generalization (specified in the `twinning` plan):
-
-| Interface | Protocol | Twin implementation | LOC estimate |
-|-----------|----------|-------------------|-------------|
-| SQL (DB2/Postgres) | SQL wire protocol | Current twin (pgwire) | ~10-15K (exists) |
-| VSAM | COBOL file I/O (OPEN/READ/WRITE/CLOSE on keyed datasets) | In-memory keyed byte-array store | ~3-4K |
-| IMS/DL/I | Hierarchical navigation (GU/GN/GNP/ISRT/REPL/DLET) | In-memory tree store | ~5-8K |
-| Flat files | Sequential I/O with copybook layout | In-memory byte stream | ~1-2K |
-| CICS | Transaction dispatch (EXEC CICS commands) | Transaction router + API surface mock | Commercial (Micro Focus) or mock top 50 |
-
-The VSAM twin is the highest-value addition. It's simpler than the SQL twin (no query parsing, no planning — just keyed byte-array storage), covers ~30% of mainframe workloads, and combined with GnuCOBOL enables off-mainframe batch job replay.
-
-### The copybook is the schema
-
-A COBOL copybook declares every field with surgical precision:
-
-```cobol
-01 LOAN-RECORD.
-   05 LOAN-ID         PIC X(10).
-   05 BALANCE         PIC S9(9)V99 COMP-3.
-   05 STATUS          PIC X(1).
-   05 RATE            PIC 9V9(5) COMP-3.
-   05 ORIGINATION-DT  PIC 9(8).
-   05 FILLER          PIC X(43).
+```text
+legacy estate
+  -> crucible scan
+  -> claim.v0 JSONL
+  -> decoding archaeology mode
 ```
 
-`PIC S9(9)V99 COMP-3` — signed, 9 integer digits, 2 decimal digits, packed decimal format. Exactly 6 bytes. No ambiguity. No inference needed. The copybook simultaneously produces: structural claims (confidence 1.0), a conversion codec (deterministic EBCDIC/packed decimal to native types), and a `shape` definition. One artifact, three outputs.
+Crucible does not decide truth in Phase 1. It discovers and records evidence.
+`decoding` converges that evidence into a canonical map.
 
-### Program execution replay
+---
 
-COBOL batch programs don't issue capturable SQL queries. They run. A nightly batch job reads VSAM datasets, processes records in a `PERFORM` loop, updates DB2 tables, and writes report files. The behavioral equivalence test is: **same inputs, same outputs.**
+## Hyperion slice #1 readiness
 
-GnuCOBOL (open source, production-grade) compiles COBOL to native executables. Combined with twins for VSAM/DB2/flat files, you get an off-mainframe execution environment:
+We should attempt the first Hyperion slice once all of the following are true:
 
-1. Capture input state from the mainframe (export VSAM datasets, export DB2 tables, collect flat files)
-2. Load inputs into twins (VSAM twin for VSAM inputs, Postgres twin for DB2 inputs)
-3. Compile and run the COBOL program against the twins
-4. Capture output state (updated datasets, DB2 changes, report files, return codes)
-5. future `rvl --exhaustive` output vs known-good output from the mainframe
+- one bounded outcome is chosen
+- the relevant database surface can be scanned
+- the relevant repos can be scanned
+- surrounding artifacts can at least be inventoried, even if not all are
+  parsed yet
+- claim output is stable and deterministic
+- `decoding` can consume the emitted claim files without translation glue
 
-JCL job streams become the replay script. Each JCL step maps to one program execution. Step dependencies map to sequential execution. DD statements map to twin connections. Condition codes map to assertions.
-
-### The 80/20
-
-| Category | % of typical mainframe | Stack coverage |
-|----------|----------------------|---------------|
-| DB2 programs | ~40% | **Works today** — Postgres twin handles DB2 SQL |
-| VSAM batch programs | ~30% | **Solvable** — VSAM twin (~3-4K LOC) + GnuCOBOL |
-| IMS programs | ~10% | **Hard** — IMS twin (~5-8K LOC), subtle navigation semantics |
-| CICS online transactions | ~15% | **Commercial** — Micro Focus, or mock top 50 transactions |
-| Assembler / vendor-specific | ~5% | **Manual** — Crucible identifies and classifies as SKIP |
-
-The stack as designed handles 40%. With a VSAM twin and GnuCOBOL integration, it handles 70%. Adding IMS gets to 80%. The last 20% is either commercial tooling or manual work — but Crucible's contribution is still real: it *finds and classifies* what needs manual handling instead of discovering it mid-migration.
-
-### What's genuinely hard
-
-**IMS.** Hierarchical databases with segment types, PCBs (Program Communication Blocks), SSAs (Segment Search Arguments), and navigational access. `GN` walks depth-first, `GNP` scopes to a subtree, `GU` does keyed lookup with concatenated keys. Implementable but subtle — fewer mainframes use IMS these days (DB2 has been eating its lunch for 20 years), but the ones that do are the hardest migrations.
-
-**CICS.** Full emulation is hundreds of commands — screen management (BMS), inter-program communication, temporary storage queues, transient data, file control, interval control. The pragmatic move: extract CICS transaction logic into testable units, mock the CICS API surface for the top 50 transactions, accept that the long tail gets manual testing. Or use Micro Focus Enterprise Server commercially.
-
-**Vendor extensions.** Programs that call assembler subroutines, use vendor-specific COBOL extensions (IBM vs Micro Focus vs Fujitsu), or depend on mainframe system services (RACF for security, SMF for auditing, HSM for storage management). These don't migrate — they get replaced. Crucible's job is to identify them, classify them as SKIP, and surface them for human handling.
-
-### What the architecture needs
-
-Three additions to the existing stack, none of which change the architecture:
-
-1. **Generalized twin interface** — The twin becomes an interface emulator with pluggable protocol backends: Postgres, VSAM, IMS, flat files. Same in-memory storage and constraint enforcement layer, different protocols. (Specified in the `twinning` plan.)
-
-2. **Copybook codec layer** — Copybook parsing produces structural claims + conversion codec + shape definition from a single artifact. This bridges mainframe byte-level data into the spine's text/numeric world. (Specified in Crucible scan above.)
-
-3. **Program execution replay** — Extend replay from "SQL query replay" to "program execution replay." JCL step maps to compile COBOL + run against twins + capture outputs + diff them. Same MATCH/MISMATCH/SKIP reporting, different execution unit. (Specified in Crucible replay above.)
-
-The convergence model, tournament scoring, evidence sealing, gold set flywheel, agent swarm — all unchanged. Crucible scans different sources, the decoder resolves different claim shapes, the twins speak different protocols. The proof infrastructure is the same.
+That is enough to start learning. It is not enough to automate the whole
+program, and it does not need to be.
