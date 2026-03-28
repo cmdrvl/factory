@@ -33,8 +33,7 @@ The spine tools are the universal proof layer. They work anywhere there is data:
 | `profile` + `shape` | Understand structure, detect compatibility |
 | `lock` | Content-address and seal inputs |
 | `verify` | Check data contracts (rules the data must satisfy) |
-| `compare` | Exhaustive diff (every cell that changed) |
-| `rvl` | Materiality analysis (what changes matter) |
+| `rvl` | Materiality analysis now; future exhaustive audit surface under `rvl` |
 | `benchmark` | Score extraction quality against gold set |
 | `assess` | Policy-based go/no-go decisions |
 | `pack` | Seal evidence (tamper-evident, content-addressed) |
@@ -77,13 +76,13 @@ The key insight: extraction is a tournament. Run N parser configurations against
 5. **Decompose** — derive optimal data product boundaries from the co-access graph, FK structure, lineage, and business function labels. Generate target schemas and verify rules. Compete multiple decomposition strategies.
 6. **Transform** — auto-generate mappings from decoded semantics (type coercion, value expansion, null sentinel replacement), extract transformation patterns from scanned application code, let agents author the rest with the twin as feedback loop.
 7. **Infer** — scanned parsers and ingestors reveal fingerprints and profiles of input documents. Apply those to the document corpus to identify gaps and holes in what Oracle actually ingested.
-8. **Reconcile** — compare what Oracle contains against what the documents say it should contain. The spine tools (compare, rvl, verify) prove where Oracle is right and where it has holes.
+8. **Reconcile** — compare what Oracle contains against what the documents say it should contain. The spine tools (`rvl`, `verify`, and later `rvl --exhaustive` when a full diff surface is needed) prove where Oracle is right and where it has holes.
 9. **Twin** the targets — each data product/mart gets a twin pair (Twin A + Twin B) with schemas from decompose and transforms from the transform phase.
 10. **Assemble** — apply transformations to source data, load into twins, score.
 11. **Tournament** — multiple assembly strategies compete. Score against Oracle as ground truth, against document evidence, against the gold set. Cross-boundary failures feed back to decompose. Transform failures feed back to the agent loop. Best assembly wins per target.
 12. **Seal** — evidence packs prove each data product is correct before cutover.
 
-The data flowing from Oracle to each data product passes through the spine: shape for structure, verify for rules, compare/rvl for equivalence, benchmark for accuracy, assess for go/no-go, pack for evidence. The spine is everywhere there is data.
+The data flowing from Oracle to each data product passes through the spine: shape for structure, verify for rules, `rvl` for materiality, future `rvl --exhaustive` or `pack diff --full` for audit-grade full diff, benchmark for accuracy, assess for go/no-go, pack for evidence. The spine is everywhere there is data.
 
 ---
 
@@ -560,7 +559,7 @@ For each target data product, the tournament asks: can we assemble correct data 
 **Scoring:**
 - `benchmark` against gold set (human-validated reference values)
 - `verify` against rules (data contracts derived from scan + human review)
-- `compare` against Oracle (exhaustive diff — does the data product match what Oracle has?)
+- future `rvl --exhaustive` against Oracle when an audit-grade full diff is needed
 - `rvl` for materiality (which differences matter?)
 - `assess` for go/no-go (policy decision: PROCEED, PROCEED_WITH_RISK, ESCALATE, BLOCK)
 
@@ -572,7 +571,7 @@ For each target data product, the tournament asks: can we assemble correct data 
 **The loop:**
 1. Assemble candidate data for target mart
 2. Load into twin
-3. Score (benchmark + verify + compare + assess)
+3. Score (benchmark + verify + rvl + assess; add future `rvl --exhaustive` for full-diff audit packs)
 4. If PROCEED: seal evidence, harvest gold set, move to next target
 5. If BOUNDARY_ERROR: feed back to decompose, refine, re-twin, re-score
 6. If ASSEMBLY_ERROR: iterate on assembly strategy, re-score
@@ -641,7 +640,7 @@ Two independent proofs:
 1. **Behavioral equivalence** — Twin A + replay: "the migrated data answers the same questions Oracle did"
 2. **Target correctness** — Twin B + spine scoring: "the new data product satisfies its own contracts"
 
-The transformation logic between Twin A and Twin B is itself testable — load the same source data into both, export, run `compare`. Any difference is either an intentional schema change (documented) or a bug.
+The transformation logic between Twin A and Twin B is itself testable — load the same source data into both, export, run future `rvl --exhaustive` (or `pack diff --full` if the audit surface lands there). Any difference is either an intentional schema change (documented) or a bug.
 
 ### Replay
 
@@ -760,7 +759,7 @@ evidence/loan-performance-mart/
 ├── replay.report.json         # Behavioral equivalence (query replay results)
 ├── benchmark.report.json      # Gold set accuracy
 ├── verify.report.json         # Rule compliance
-├── compare.report.json        # Exhaustive diff vs Oracle source
+├── exhaustive.report.json     # Future full diff vs Oracle source (under `rvl` or `pack diff`)
 ├── rvl.report.json            # Materiality analysis
 ├── assess.report.json         # Policy decision (covers both static + behavioral)
 ├── data.lock.json             # Content-addressed lockfile for the data
@@ -769,7 +768,7 @@ evidence/loan-performance-mart/
 
 ### What the auditors see
 
-Not "we migrated the database." Instead: "Here are 24 evidence packs, one per data product. Each one proves two things independently: the data matches (static equivalence via compare + verify + benchmark) AND the system behaves the same (behavioral equivalence via query replay). Every number traces to a source. Every query is reproducible. Every decision is sealed."
+Not "we migrated the database." Instead: "Here are 24 evidence packs, one per data product. Each one proves two things independently: the data matches (static equivalence via `rvl`, future exhaustive diff when needed, `verify`, and `benchmark`) AND the system behaves the same (behavioral equivalence via query replay). Every number traces to a source. Every query is reproducible. Every decision is sealed."
 
 That's why the previous attempts failed and this one won't. Not better technology — better proof.
 
@@ -824,7 +823,7 @@ ntm spawn dp-surveillance       # Agent works the surveillance mart
 ...                             # 10-15 data products in parallel
 ```
 
-Each agent: assemble → load twin → score (benchmark + verify + compare + assess) → iterate → seal evidence pack. Agents don't interact. Each twin is isolated. Each evidence pack is independent.
+Each agent: assemble → load twin → score (benchmark + verify + rvl + assess, plus future `rvl --exhaustive` when needed) → iterate → seal evidence pack. Agents don't interact. Each twin is isolated. Each evidence pack is independent.
 
 **Wave 3: Replay (5-10 agents)**
 Each agent replays historical queries for one data product against its Twin A.
@@ -907,7 +906,7 @@ The spine is the proof layer. The factory is the orchestration layer.
 |                    SPINE                                   |
 |                                                           |
 |   vacuum hash fingerprint profile lock shape rvl          |
-|   verify compare benchmark assess canon pack              |
+|   verify benchmark assess canon pack                      |
 |                                                           |
 |   (works anywhere there is data)                          |
 +-----------------------------------------------------------+
@@ -943,7 +942,7 @@ The factory architecture was designed around two modes: document corpus decompos
 
 **The convergence model works perfectly.** COBOL mainframes actually have *more* independent sources than Oracle. COBOL programs, JCL job streams, copybooks, DB2 DDL, CICS transaction definitions, batch schedules, operator manuals — each emits claims about what the system does. The fountain model doesn't care that the sources are in COBOL. It cares that they're independent.
 
-**Tournament scoring works identically.** Data is data. `benchmark`, `verify`, `compare`, `assess`, `pack` — none of them know or care that the source was a mainframe. Assemble candidate data, score it, best one wins.
+**Tournament scoring works identically.** Data is data. `benchmark`, `verify`, `rvl`, `assess`, `pack` — none of them know or care that the source was a mainframe. Assemble candidate data, score it, best one wins. If a full audit diff is needed, that lands under future `rvl --exhaustive`.
 
 **Evidence sealing works identically.** The spine doesn't touch the source system.
 
@@ -997,7 +996,7 @@ GnuCOBOL (open source, production-grade) compiles COBOL to native executables. C
 2. Load inputs into twins (VSAM twin for VSAM inputs, Postgres twin for DB2 inputs)
 3. Compile and run the COBOL program against the twins
 4. Capture output state (updated datasets, DB2 changes, report files, return codes)
-5. `compare` output vs known-good output from the mainframe
+5. future `rvl --exhaustive` output vs known-good output from the mainframe
 
 JCL job streams become the replay script. Each JCL step maps to one program execution. Step dependencies map to sequential execution. DD statements map to twin connections. Condition codes map to assertions.
 
@@ -1029,6 +1028,6 @@ Three additions to the existing stack, none of which change the architecture:
 
 2. **Copybook codec layer** — Copybook parsing produces structural claims + conversion codec + shape definition from a single artifact. This bridges mainframe byte-level data into the spine's text/numeric world. (Specified in factory scan above.)
 
-3. **Program execution replay** — Extend replay from "SQL query replay" to "program execution replay." JCL step maps to compile COBOL + run against twins + capture outputs + compare. Same MATCH/MISMATCH/SKIP reporting, different execution unit. (Specified in factory replay above.)
+3. **Program execution replay** — Extend replay from "SQL query replay" to "program execution replay." JCL step maps to compile COBOL + run against twins + capture outputs + diff them. Same MATCH/MISMATCH/SKIP reporting, different execution unit. (Specified in factory replay above.)
 
 The convergence model, tournament scoring, evidence sealing, gold set flywheel, agent swarm — all unchanged. The factory scans different sources, the decoder resolves different claim shapes, the twins speak different protocols. The proof infrastructure is the same.
